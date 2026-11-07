@@ -19,6 +19,14 @@ Guidance for AI coding agents working in this repo. Keep changes small, simple, 
 - `npm run lint` – lint
 - `npm test` – run unit tests once
 
+## CI
+
+- GitHub Actions workflow in `.github/workflows/ci.yml` runs on every push and pull request to `main`: install (`npm ci`), lint, test, build.
+- CI must be green before merging or deploying. Fix failures, never skip or disable a step to get green.
+- CI uses the same commands as above on Node 22. Keep the workflow in sync when commands change.
+- CI never needs real secrets. Tests mock OpenAI and Supabase. The build runs with dummy values only if it needs env vars.
+- Keep the workflow small. Do not add extra jobs or third-party actions without asking.
+
 Run lint, tests, and build before saying a task is done.
 
 ## Project structure
