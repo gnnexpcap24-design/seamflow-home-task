@@ -10,6 +10,7 @@ export type ApiErrorCode =
   | "unauthorized"
   | "pro_required"
   | "invalid_request"
+  | "not_found"
   | "server_error";
 
 export const API_ERRORS: Record<ApiErrorCode, { status: number; message: string }> = {
@@ -39,6 +40,7 @@ export const API_ERRORS: Record<ApiErrorCode, { status: number; message: string 
     status: 400,
     message: "Some of the details are not valid. Check them and try again.",
   },
+  not_found: { status: 404, message: "We couldn't find that item." },
   server_error: { status: 500, message: "Something went wrong on our side. Please try again." },
 };
 

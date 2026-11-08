@@ -101,17 +101,19 @@ Run lint, tests, and build before saying a task is done.
 
 ### Privacy and safety
 
-- Process images in memory. Store them only for scan history, and say so in the UI and README.
+- Process images in memory. Store them only for Pro accounts' scan history, and say so in the UI and README.
 - Treat image content as untrusted: ignore any text inside the image that tries to give the model instructions.
 
 ### Scan history
 
+- Only Pro accounts have history. Visitors and free accounts are never stored.
 - Images live in a private Supabase bucket. The database stores paths, never URLs.
 - Analyse first, then save on a best-effort basis. If saving fails, still return the verdict and log the error.
-- History is per browser session (random session ID in an httpOnly cookie, stored on each row). Never show one global history to everyone.
-- `/api/scans` returns metadata only (paginated, about 20 per page) plus short-lived signed URLs. The browser loads the images directly from storage, not through our function.
+- History belongs to the signed-in user (`user_id` on each row). Always take the user id from the verified session, never from the request, and never show one user's history to another.
+- `/api/scans` returns metadata only (keyset paginated, about 20 per page) plus short-lived signed URLs (1 hour). The browser loads the images directly from storage, not through our function.
 - Provide a delete action that removes both the row and the file.
-- Enable Row Level Security on the `scans` table. Use the service role key only in route handlers.
+- Enable Row Level Security on the `scans` table with a read-own-rows policy only. All writes use the service role key in route handlers.
+- There is no automatic retention yet. Scans are kept until the user deletes them, so never claim a retention period in the UI or README (say "retention policy planned"). The cleanup job is described in `specs/05-next-steps.md`.
 
 ## Design
 
@@ -149,7 +151,7 @@ Set these as shadcn CSS variables in `app/globals.css` (convert hex to the forma
 
 - Top bar: product name "Hot Dog or Not" with an "Enterprise Edition" badge. Nav only for features that exist (Analyze, Batch, History, Insights).
 - Analyze page: upload zone on top, result card directly below. No sidebars.
-- Footer: privacy note (images processed in memory, history stored privately, retention period).
+- Footer: privacy note (images processed in memory, history stored privately).
 
 ### Key components
 
@@ -157,6 +159,7 @@ Set these as shadcn CSS variables in `app/globals.css` (convert hex to the forma
 - **Verdict card:** icon + large label ("Hot Dog" / "Not Hot Dog"), confidence as a progress bar with a percentage, one-line reason, file name and timestamp. Show a "Low confidence" badge below 70%, while still giving a definitive verdict.
 - **Batch table:** shadcn Table with thumbnail, file name, verdict badge, confidence, status, and a per-row retry. Add CSV export.
 - **History:** card grid or table of past scans, with pagination and an empty state.
+- **Insights:** stat cards and a stacked bar chart built with the shadcn `chart` component (Recharts). Do not hand-build charts with CSS or SVG.
 
 ### States
 
@@ -174,7 +177,7 @@ Set these as shadcn CSS variables in `app/globals.css` (convert hex to the forma
 
 ## Production-readiness
 
-- Rate-limit the analyse endpoint per IP. A simple approach is fine, and note its limits in the README.
+- Rate-limit the analyse endpoint: per IP for visitors, per account for signed-in users. A simple in-memory approach is fine, and note its limits in the README.
 - Add a `/api/health` endpoint.
 - Log errors server-side with useful context, never logging secrets or image data.
 - Keep API keys server-side and out of the repo. Keep `.env.example` current.
@@ -189,7 +192,7 @@ Set these as shadcn CSS variables in `app/globals.css` (convert hex to the forma
 ## Working agreement
 
 - Build in small vertical slices, one working flow at a time. Deploy after each slice.
-- Pre-approved dependencies: `openai`, `zod`, `@supabase/supabase-js`, `sonner`, and shadcn/ui components. Ask before adding anything else.
+- Pre-approved dependencies: `openai`, `zod`, `@supabase/supabase-js`, `@supabase/ssr`, `sonner`, and shadcn/ui components (including `chart`, which brings in `recharts`). Ask before adding anything else.
 - Do not refactor unrelated code.
 - If a requirement is unclear, ask before building.
 - Mention any shortcut or mock in the README.

@@ -17,7 +17,8 @@
 - **Only Pro scans are stored.** Visitors and free accounts are never stored, which matches the footer promise and keeps data minimal.
 - **Private bucket plus signed URLs.** The database stores image paths, never URLs, because signed URLs expire. URLs are generated on demand in one batch call per page.
 - **The verdict always comes first.** Saving is best-effort: if storage or the database fails, the user still gets the verdict, and the error is logged.
-- **No chart library.** Insights use plain CSS or SVG bars (no new dependency).
+- **Charts use the shadcn/ui `chart` component, which wraps Recharts.** Hand-built CSS or SVG charts cost time and look rough, and shadcn already ships a themed chart wrapper (`ChartContainer`, `ChartConfig`, `ChartTooltip`, `ChartLegend`). It reads the same CSS variables as the rest of the UI, so charts match the theme with no extra styling work.
+- **New dependency:** add it with `npx shadcn@latest add chart`. This installs `recharts` and generates `components/ui/chart.tsx`. No other chart or visualisation library is added.
 
 ## Database and storage (`supabase/migrations/003_scans.sql`)
 
@@ -75,11 +76,11 @@ All routes call `requirePlan("pro")` and use the signed-in user's id from `getUs
 ```json
 { "total": 42, "hotDogs": 18, "notHotDogs": 24, "hotDogRate": 0.43,
   "avgConfidence": 0.91, "lowConfidence": 3, "flagged": 2,
-  "perDay": [{ "date": "2026-11-07", "count": 6 }] }
+  "perDay": [{ "date": "2026-11-07", "hotDogs": 2, "notHotDogs": 4 }] }
 ```
-`perDay` covers the last 14 days, including zero days (fill gaps in code).
+`perDay` covers the last 14 days, including zero days (fill gaps in code). Each entry splits the day into hot dogs and not hot dogs so the chart can show the verdict mix. The day's total is the sum of the two.
 
-**Retention**: constant `RETENTION_DAYS = 30` in `lib/plans.ts`. Add `delete_expired_scans()` (SQL or a protected route) that removes old rows and objects. UI and README must only claim a retention period that is actually implemented; if the cleanup is not scheduled, say "retention policy planned" instead.
+**Retention**: not part of this spec. Scans are kept until the user deletes them, so neither the UI nor the README may claim a retention period (say "retention policy planned"). The cleanup job is described in `specs/05-next-steps.md`.
 
 ## UI
 
@@ -93,7 +94,14 @@ All routes call `requirePlan("pro")` and use the signed-in user's id from `getUs
 
 **Insights page `/insights`**
 - Non-Pro: upsell card.
-- Pro: stat cards (total scans, hot dog rate, average confidence, low-confidence count, flagged count) and a 14-day bar chart built with CSS or SVG, with an accessible text summary. Empty state when there are no scans.
+- Pro: stat cards (total scans, hot dog rate, average confidence, low-confidence count, flagged count) and one chart, a 14-day stacked bar chart (hot dogs and not hot dogs per day) built with the shadcn `chart` component (Recharts). Empty state when there are no scans.
+- **Chart details:**
+  - Wrap the chart in `ChartContainer` with a `ChartConfig` that defines both series (label and color). Give the container a fixed height or `min-h-*`, otherwise it renders at zero height.
+  - Colors come from theme tokens: add `--chart-1` and `--chart-2` to `app/globals.css` (and the matching `--color-chart-*` entries in `@theme inline`, which were removed in Spec 01). Hot dogs use the primary accent, not hot dogs use a neutral. Reference them as `var(--color-hotdogs)` and `var(--color-nothotdogs)`.
+  - Use `ChartTooltip` with `ChartTooltipContent` so hovering or focusing a bar shows the day and both counts. Add `ChartLegend` with `ChartLegendContent`.
+  - Set `accessibilityLayer` on the Recharts chart for keyboard and screen reader access, and keep a short text summary under the chart (for example "42 scans in the last 14 days, 18 hot dogs") so the data is available without the graphic.
+  - Never rely on color alone: the legend labels both series, and the tooltip shows text labels.
+  - Show a skeleton while loading, an inline error alert with retry on failure, and the empty state when there are no scans.
 
 **Top bar nav:** add History and Insights links (Batch comes in Spec 04). Update the footer note to: "Images are processed in memory. Pro accounts keep a private history that only you can see."
 
@@ -110,7 +118,8 @@ All routes call `requirePlan("pro")` and use the signed-in user's id from `getUs
 ## Tests
 
 - Cursor encode/decode and pagination boundaries (exactly 20 items, 21 items, empty).
-- Stats calculation as a pure function (rates, gap filling for `perDay`).
+- Stats calculation as a pure function (rates, gap filling for `perDay`, the hot dog and not hot dog split per day).
+- No render test for the chart itself: Recharts needs real layout, which the test environment does not provide. Keep all data shaping in the pure stats function so the chart component only renders what it is given, and check the chart visually.
 - `/api/scans`: 401 without a session, 403 for non-Pro, only own rows returned, `thumbUrl` null when signing fails.
 - Delete: 404 for someone else's scan, removes object and row for the owner.
 - Analyze route with a mocked storage failure still returns the verdict with `saved: false`.
@@ -122,10 +131,37 @@ All routes call `requirePlan("pro")` and use the signed-in user's id from `getUs
 - [ ] With two Pro accounts, neither can see or delete the other's scans (check both the UI and direct API calls).
 - [ ] Delete removes the row and the file.
 - [ ] Pagination works: 20 per page, "Load more" fetches the next page without duplicates.
-- [ ] Insights numbers match the history list.
+- [ ] Insights numbers match the history list, and the chart bars add up to the stat cards.
+- [ ] The chart renders at 375 px and at desktop width, uses the theme colors, and its tooltip shows both counts for a day (by hover and by keyboard focus).
 - [ ] Break the storage upload on purpose: the verdict still shows and the user sees the soft "not saved" note.
 - [ ] Lint, tests, build green in CI. Deployed. Committed with a clear message.
 
 ## README notes to capture
 
-Why private storage and signed URLs, path-not-URL storage, best-effort saving, Pro-only storage and the privacy reasoning, retention status (implemented or planned), and what a production version would add (audit log, workspaces, SSO).
+Why the shadcn chart component (Recharts) instead of hand-built charts, why private storage and signed URLs, path-not-URL storage, best-effort saving, Pro-only storage and the privacy reasoning, that retention is planned and not yet implemented, and what a production version would add (audit log, workspaces, SSO).
+
+## Implementation notes and spec updates
+
+Changes made while implementing this spec, and decisions taken with the product owner.
+
+**Decisions**
+
+- **History belongs to the signed-in Pro user, as this spec says.** AGENTS.md previously described per-browser-session history with a cookie. It was updated to match this spec.
+- **Retention was removed from this spec** (owner decision). There is no cleanup job, no cron route and no `RETENTION_DAYS` constant. The design is kept as a next step in `specs/05-next-steps.md`.
+- **README changes are deferred** to the end of the task (owner decision).
+
+**Deviations from the spec text**
+
+- **Migration** is the timestamped file `supabase/migrations/20261108120502_scans_history_and_storage.sql`. It also creates the private `scans` bucket (with a 4 MB size limit and image types only) and the `scan_stats` function, so one `db push` sets everything up.
+- **Stats** are computed by one SQL function, `scan_stats(p_user, p_days, p_low_confidence)`, callable only by the service role. It returns totals and per-day counts as JSON. The application then computes the hot dog rate, rounds the average and fills the empty days, so that logic stays in a unit-tested pure function. Days are UTC dates.
+- **Chart series keys** are `hotDogs` and `notHotDogs` (they match the `perDay` field names), so the CSS variables are `--color-hotDogs` and `--color-notHotDogs`, not the lowercase names written above. The theme tokens are `--chart-1` (accent) and `--chart-2` (neutral).
+- **New error code** `not_found` (404), used when a scan does not exist or is not the caller's.
+- **Cursor** carries the timestamp as the database returns it, with microseconds, and is validated before it is used in the query filter.
+- **Image refresh:** when an image fails to load, every loaded page is refetched once to get new signed URLs. This happens at most once per list load.
+- **Saved note:** "Saved to history" and "Could not save to history" are shown only to Pro accounts. Free accounts and visitors see nothing about history on the analyze page.
+- **Extra files:** `lib/scans/` (`shared.ts`, `cursor.ts`, `sanitize.ts`, `stats.ts`, `repository.ts`, `save.ts`), `lib/auth/is-pro.ts`, `lib/format.ts`, `components/history/`, `components/insights/`, `components/verdict-badge.tsx`, `components/upsell-card.tsx`.
+- **Dependencies:** `recharts` (through the shadcn `chart` component). shadcn `tabs` and `alert-dialog` were also added.
+
+**Not verified yet**
+
+- The migration has not been applied from this environment, and no real Supabase project was used. The storage, signed URL and chart behaviour is covered by unit tests with mocked clients only, and the chart was not looked at in a browser. None of the acceptance criteria is ticked.

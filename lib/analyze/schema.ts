@@ -19,4 +19,11 @@ export const AnalysisSchema = z.object({
 
 export type Analysis = z.infer<typeof AnalysisSchema>;
 
-export type AnalyzeResponse = Analysis & { lowConfidence: boolean; analyzedAt: string };
+export type Verdict = Analysis["verdict"];
+
+export type AnalyzeResponse = Analysis & {
+  lowConfidence: boolean;
+  analyzedAt: string;
+  saved: boolean;
+  scanId?: string;
+};

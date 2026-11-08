@@ -23,6 +23,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
   --color-hotdog: var(--hotdog);
   --color-hotdog-foreground: var(--hotdog-foreground);
   --color-nothotdog: var(--nothotdog);
@@ -56,6 +58,8 @@
   --border: oklch(0.923 0.003 0);
   --input: oklch(0.923 0.003 0);
   --ring: oklch(0.473 0.125 46.2);
+  --chart-1: oklch(0.473 0.125 46.2);
+  --chart-2: oklch(0.553 0.013 58);
   --radius: 0.5rem;
   --hotdog: oklch(0.979 0.021 166.1);
   --hotdog-foreground: oklch(0.508 0.105 165.6);

@@ -7,9 +7,11 @@ const resolveIdentity = vi.hoisted(() => vi.fn());
 const consumeScan = vi.hoisted(() => vi.fn());
 const refundScan = vi.hoisted(() => vi.fn());
 const getQuota = vi.hoisted(() => vi.fn());
+const saveScanIfEligible = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/analyze/classify", () => ({ classifyImage }));
 vi.mock("@/lib/quota", () => ({ consumeScan, refundScan, getQuota }));
+vi.mock("@/lib/scans/save", () => ({ saveScanIfEligible }));
 vi.mock("@/lib/auth/identity", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/identity")>()),
   getAuthUser,
@@ -55,6 +57,7 @@ describe("POST /api/analyze", () => {
     consumeScan.mockReset().mockResolvedValue(true);
     refundScan.mockReset().mockResolvedValue(undefined);
     getQuota.mockReset().mockResolvedValue(quota);
+    saveScanIfEligible.mockReset().mockResolvedValue({ saved: false });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -76,6 +79,39 @@ describe("POST /api/analyze", () => {
       getQuota.mockRejectedValue(new Error("db down"));
       const body = await (await post(jpeg())).json();
       expect(body).toMatchObject({ ...verdict, quota: null });
+    });
+  });
+
+  describe("history", () => {
+    it("returns saved and scanId when the scan was stored", async () => {
+      saveScanIfEligible.mockResolvedValue({ saved: true, scanId: "scan-1" });
+      const body = await (await post(jpeg())).json();
+      expect(body).toMatchObject({ saved: true, scanId: "scan-1" });
+    });
+
+    it("still returns the verdict with saved false when saving fails", async () => {
+      saveScanIfEligible.mockResolvedValue({ saved: false });
+      const response = await post(jpeg());
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ ...verdict, saved: false });
+      expect(body.scanId).toBeUndefined();
+      expect(refundScan).not.toHaveBeenCalled();
+    });
+
+    it("hands the save step the identity, the sanitized upload and the analysis", async () => {
+      await post(jpeg());
+      expect(saveScanIfEligible).toHaveBeenCalledWith(
+        returningVisitor,
+        expect.objectContaining({ fileName: "a.jpg", mimeType: "image/jpeg" }),
+        verdict,
+      );
+    });
+
+    it("does not try to save when the classification failed", async () => {
+      classifyImage.mockRejectedValue(new AnalyzeError("model_error"));
+      await post(jpeg());
+      expect(saveScanIfEligible).not.toHaveBeenCalled();
     });
   });
 

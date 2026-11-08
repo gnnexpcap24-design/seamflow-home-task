@@ -12,7 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_ERRORS } from "@/lib/analyze/errors";
 import type { AnalyzeResponse } from "@/lib/analyze/schema";
-import type { Quota, UpgradeTarget } from "@/lib/plans";
+import type { PlanName, Quota, UpgradeTarget } from "@/lib/plans";
 import { CompressionError, compressImage } from "@/lib/image/compress";
 import { MAX_PICK_BYTES, validateFileMeta } from "@/lib/validation/file";
 
@@ -61,7 +61,7 @@ export function Analyzer() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [limitTarget, setLimitTarget] = useState<UpgradeTarget | null>(null);
-  const { setQuota, refresh } = useQuota();
+  const { me, setQuota, refresh } = useQuota();
 
   useEffect(() => {
     const url = prepared?.preview.url;
@@ -143,7 +143,7 @@ export function Analyzer() {
         {phase === "preparing" && <p className="text-sm text-muted-foreground">Preparing image...</p>}
         {phase === "analyzing" && <AnalyzingCard />}
         {phase === "done" && result && prepared && (
-          <VerdictCard result={result} fileName={prepared.originalName} onReset={reset} />
+          <VerdictCard result={result} fileName={prepared.originalName} saveStatus={saveStatus(result, me?.plan)} onReset={reset} />
         )}
         {phase === "error" && error && (
           <ErrorAlert message={error} onRetry={prepared ? analyze : undefined} />
@@ -152,6 +152,12 @@ export function Analyzer() {
       <QuotaDialog target={limitTarget} onClose={() => setLimitTarget(null)} />
     </div>
   );
+}
+
+// Only Pro accounts have history, so only they see a save note.
+function saveStatus(result: AnalyzeResponse, plan: PlanName | undefined): "saved" | "failed" | null {
+  if (result.saved) return "saved";
+  return plan === "pro" ? "failed" : null;
 }
 
 function AnalyzingCard() {

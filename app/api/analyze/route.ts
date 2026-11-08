@@ -7,6 +7,7 @@ import { attachVisitorCookie, getAuthUser, resolveIdentity, type AuthUser, type 
 import { upgradeTarget } from "@/lib/plans";
 import { consumeScan, getQuota, refundScan } from "@/lib/quota";
 import { createRateLimiter, type RateLimitResult } from "@/lib/rate-limit";
+import { saveScanIfEligible } from "@/lib/scans/save";
 import {
   MAGIC_BYTES_LENGTH,
   MAX_UPLOAD_BYTES,
@@ -55,10 +56,12 @@ async function analyze(file: File, identity: Identity): Promise<NextResponse> {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const analysis = await classifyImage({ buffer, mimeType: file.type });
+    const saveResult = await saveScanIfEligible(identity, { fileName: file.name, buffer, mimeType: file.type }, analysis);
     return NextResponse.json({
       ...analysis,
       lowConfidence: analysis.confidence < LOW_CONFIDENCE_THRESHOLD,
       analyzedAt: new Date().toISOString(),
+      ...saveResult,
       quota: await getQuota(identity).catch(() => null),
     });
   } catch (error) {

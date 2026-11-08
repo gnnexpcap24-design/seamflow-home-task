@@ -5,9 +5,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { AnalyzeResponse } from "@/lib/analyze/schema";
 
-type Props = { result: AnalyzeResponse; fileName: string; onReset: () => void };
+type Props = {
+  result: AnalyzeResponse;
+  fileName: string;
+  saveStatus: "saved" | "failed" | null;
+  onReset: () => void;
+};
 
-export function VerdictCard({ result, fileName, onReset }: Props) {
+export function VerdictCard({ result, fileName, saveStatus, onReset }: Props) {
   const isHotDog = result.verdict === "hot_dog";
   const percent = Math.round(result.confidence * 100);
   const Icon = isHotDog ? CircleCheckIcon : CircleSlashIcon;
@@ -35,6 +40,9 @@ export function VerdictCard({ result, fileName, onReset }: Props) {
         <p className="text-xs text-muted-foreground">
           {fileName} · {new Date(result.analyzedAt).toLocaleString()}
         </p>
+
+        {saveStatus === "saved" && <p className="text-sm text-muted-foreground">Saved to history</p>}
+        {saveStatus === "failed" && <p className="text-sm text-muted-foreground">Could not save to history</p>}
 
         <Button className="h-11 w-fit px-5" onClick={onReset}>
           Analyze another

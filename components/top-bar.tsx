@@ -25,6 +25,8 @@ export function TopBar() {
               {quotaLabel(me.quota)}
             </span>
           )}
+          <Link href="/history" className={navLink}>History</Link>
+          <Link href="/insights" className={navLink}>Insights</Link>
           <Link href="/pricing" className={navLink}>Pricing</Link>
           {me?.authenticated ? (
             <Link href="/account" className={navLink}>Account</Link>
