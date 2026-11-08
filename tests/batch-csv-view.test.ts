@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCsv, csvFileName, escapeCell } from "@/lib/batch/csv";
 import type { BatchItem } from "@/lib/batch/queue";
-import { filterAndSort } from "@/lib/batch/view";
+import { BATCH_PAGE_SIZE, filterAndSort, paginate } from "@/lib/batch/view";
 
 function item(name: string, overrides: Partial<BatchItem> = {}): BatchItem {
   return { id: name, file: new File(["x"], name, { type: "image/jpeg" }), status: "queued", ...overrides };
@@ -108,5 +108,29 @@ describe("filterAndSort", () => {
     const before = items.map((i) => i.id);
     filterAndSort(items, { ...all, sort: "high" });
     expect(items.map((i) => i.id)).toEqual(before);
+  });
+});
+
+describe("paginate", () => {
+  const list = Array.from({ length: 12 }, (_, index) => index + 1);
+
+  it("returns the requested page and the page count", () => {
+    expect(paginate(list, 1, 5)).toEqual({ items: [1, 2, 3, 4, 5], page: 1, pageCount: 3 });
+    expect(paginate(list, 3, 5)).toEqual({ items: [11, 12], page: 3, pageCount: 3 });
+  });
+
+  it("handles an exact multiple and an empty list", () => {
+    expect(paginate(list.slice(0, 10), 2, 5).items).toEqual([6, 7, 8, 9, 10]);
+    expect(paginate(list.slice(0, 10), 2, 5).pageCount).toBe(2);
+    expect(paginate([], 1, 5)).toEqual({ items: [], page: 1, pageCount: 1 });
+  });
+
+  it("moves an out-of-range page to the nearest valid page", () => {
+    expect(paginate(list, 99, 5).page).toBe(3);
+    expect(paginate(list, 0, 5).page).toBe(1);
+  });
+
+  it("uses the batch page size by default", () => {
+    expect(paginate(list, 1).items).toHaveLength(BATCH_PAGE_SIZE);
   });
 });

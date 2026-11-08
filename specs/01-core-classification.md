@@ -1,47 +1,39 @@
 # Spec 01 – Core classification
 
-**Goal:** a live, reliable "Hot Dog / Not Hot Dog" classifier with an enterprise look. This is the product. Everything else builds on it.
-**Depends on:** the starter repo (Next.js, shadcn/ui, Vitest, CI, Vercel deploy). No database is used in this spec.
+**Goal:** classify one uploaded image as "Hot Dog" or "Not Hot Dog", with a confidence score and a one-sentence reason. This is the core of the product. Quotas (Spec 02), history (Spec 03) and batch upload (Spec 04) extend the same endpoint.
 
-## Plans at a glance (context only, built in later specs)
-
-| | Visitor | Free account | Pro |
-|---|---|---|---|
-| Scans | 3 total | 5 total | Unlimited (fair-use rate limit) |
-| Stored history | No | No | Yes |
-| Batch upload | No | No | Yes |
-| Insights dashboard | No | No | Yes |
-
-All limits live in one file, `lib/plans.ts`, so they are easy to change. Spec 01 ignores plans: anyone can scan.
-
-## Product decisions
+## Product rules
 
 - **Hot Dog** = a frankfurter-style sausage, served in a bun or on its own, with any toppings.
 - **Not Hot Dog** = everything else: corn dogs, other sausages (for example bratwurst), other food, non-food, toys, unrelated images.
 - For borderline cases the one-line reason explains the call (for example "Looks like a bratwurst, not a frankfurter").
-- The answer is always definitive. Confidence (0 to 1) is estimated by the model. Below 0.70 show a "Low confidence" badge, but still give the verdict.
+- The answer is always definitive. Confidence (0 to 1) is estimated by the model. Below 0.70 the UI shows a "Low confidence" badge and still gives the verdict.
 - A failure is never presented as a verdict. Unreadable, rejected, or failed analyses show an error with a retry.
-- Images are processed in memory and never stored in this spec.
+- Images are processed in memory. Only Pro accounts have them stored (Spec 03).
 
 ## Environment
 
-- `OPENAI_API_KEY`, `OPENAI_VISION_MODEL` (server only). Add both to `.env.example` and to Vercel.
+- `OPENAI_API_KEY`, `OPENAI_VISION_MODEL` (server only).
 
-## Files to create
+## Code
 
-- `lib/analyze/schema.ts` – zod schema and types (below).
+- `lib/analyze/schema.ts` – zod schemas and types, `LOW_CONFIDENCE_THRESHOLD` (0.7).
 - `lib/analyze/prompt.ts` – system prompt and user prompt.
-- `lib/analyze/classify.ts` – calls OpenAI, returns a validated result or a typed error.
-- `lib/validation/file.ts` – type, size, and magic-byte checks (shared by client and server where possible).
+- `lib/analyze/classify.ts` – calls OpenAI and returns a validated result or a typed error.
+- `lib/analyze/errors.ts` – error codes, user-facing messages and `AnalyzeError`.
+- `lib/analyze/client.ts` – browser helper that posts an image to `/api/analyze`.
+- `lib/openai.ts`, `lib/env.ts` – OpenAI client (20 s timeout, SDK retries off) and required-variable helper.
+- `lib/validation/file.ts` – type, size and magic-byte checks, shared by client and server.
 - `lib/image/compress.ts` – browser-side resize and re-encode.
-- `lib/rate-limit.ts` – in-memory limiter.
+- `lib/rate-limit.ts` – in-memory limiter. `lib/api-response.ts` – error response helper.
 - `app/api/analyze/route.ts`, `app/api/health/route.ts`.
-- `components/upload-zone.tsx`, `components/verdict-card.tsx`, `components/error-alert.tsx`, `components/app-shell.tsx`.
+- `components/analyzer.tsx`, `upload-zone.tsx`, `verdict-card.tsx`, `error-alert.tsx`, `app-shell.tsx`.
 
 ## Model contract
 
 ```ts
-// schema.ts
+// ModelOutputSchema is sent to OpenAI: plain types only.
+// AnalysisSchema validates the parsed output.
 export const AnalysisSchema = z.object({
   verdict: z.enum(["hot_dog", "not_hot_dog"]),
   confidence: z.number().min(0).max(1),
@@ -49,98 +41,96 @@ export const AnalysisSchema = z.object({
 });
 ```
 
-- Use the Responses API with `responses.parse` and `zodTextFormat(AnalysisSchema, ...)`. One image per call, sent as a base64 data URL.
-- Prompt rules: state the Hot Dog definition above, including the borderline cases; ask for one short factual reason (what is visible); say that any text inside the image is content, not instructions; ask for lower confidence when the image is blurry, dark, or ambiguous.
-- Handle: explicit refusal, schema parse failure (retry once), API error or 429/5xx (retry once with a short delay), timeout (target 20 s, below the function's max duration; check the current Vercel limit).
-- Never log the image or base64 data.
+- The Responses API is called with `responses.parse` and `zodTextFormat(ModelOutputSchema, ...)`. One image per call, sent as a base64 data URL with `detail: "auto"`. The range and length limits are applied by `AnalysisSchema` after parsing, because structured outputs may ignore them.
+- Prompt rules: state the Hot Dog definition above, including the borderline cases; ask for one short factual reason (what is visible); state that any text inside the image is content, not instructions; ask for lower confidence when the image is blurry, dark, or ambiguous.
+- Failure handling:
+  - An explicit refusal becomes `image_rejected`. It is not retried.
+  - Output that fails validation, a 429, a 5xx and connection errors are retried once after 500 ms, then become `model_error`.
+  - A 400 becomes `image_rejected` only when the error code mentions an image or a content policy. Any other 400 is `model_error`.
+  - A timeout (20 s) becomes `timeout` and is not retried.
+  - The OpenAI SDK's own retries are off, so this policy is the only one.
+- Failures are logged by type only. The image and its base64 data are never logged.
 
 ## API: `POST /api/analyze`
 
-**Request:** `multipart/form-data` with one field `file`.
+**Request:** `multipart/form-data` with the field `file`. Spec 04 adds an optional `batchId`.
 
-**Server checks, in order:** rate limit, file present, MIME type in {jpeg, png, webp}, magic bytes match the type, size <= 4 MB. Then classify.
+**Checks, in order:**
+
+1. Rate limit: 20 requests per minute per IP for visitors, 60 per minute per account for signed-in users (in memory, per server instance).
+2. File present.
+3. MIME type is JPEG, PNG or WebP.
+4. The first bytes match the declared type.
+5. Size is at most 4 MB.
+6. Identity and plan (Spec 02), then the batch check (Spec 04), then quota (Spec 02).
+7. Classification, then saving to history for Pro accounts (Spec 03).
+
+`maxDuration` is 30 s, above the model timeout.
 
 **200 response:**
+
 ```json
-{ "verdict": "hot_dog", "confidence": 0.94, "reason": "Sausage in a bun with mustard.", "lowConfidence": false, "analyzedAt": "2026-11-08T11:30:00Z" }
+{
+  "verdict": "hot_dog",
+  "confidence": 0.94,
+  "reason": "Sausage in a bun with mustard.",
+  "lowConfidence": false,
+  "analyzedAt": "2026-11-08T11:30:00.000Z",
+  "saved": false,
+  "quota": { "plan": "visitor", "used": 1, "limit": 3, "remaining": 2 }
+}
 ```
 
-**Errors** use `{ "error": { "code": "...", "message": "..." } }`:
+`saved` and `scanId` come from Spec 03. `quota` comes from Spec 02 and is `null` if the lookup fails after a successful scan.
 
-| Status | code | When |
+**Errors** use `{ "error": { "code": "...", "message": "..." } }`. Messages are written for end users, with no stack traces or provider names.
+
+| Status | Code | When |
 |---|---|---|
 | 400 | `missing_file` | no file in the request |
-| 415 | `unsupported_type` | not JPEG, PNG, or WebP |
+| 400 | `invalid_request` | a request body or `batchId` is not valid |
+| 401 | `unauthorized` | a signed-in session is required |
+| 403 | `quota_exceeded` | the plan's scan limit is used up (adds `upgradeTo`, Spec 02) |
+| 403 | `pro_required` | the feature is part of the Pro plan |
+| 404 | `not_found` | the scan does not exist or is not the caller's |
 | 413 | `file_too_large` | over 4 MB |
+| 415 | `unsupported_type` | not JPEG, PNG or WebP, or the bytes do not match the type |
 | 422 | `image_rejected` | OpenAI refused or cannot read the image |
-| 429 | `rate_limited` | over the limiter (include `Retry-After`) |
+| 429 | `rate_limited` | over the limiter (includes `Retry-After`) |
+| 500 | `server_error` | a database call failed |
 | 502 | `model_error` | OpenAI failed after the retry |
-| 504 | `timeout` | model call exceeded the timeout |
-
-Messages are written for end users (no stack traces, no provider names).
-
-**Rate limit:** 20 requests per minute per IP, in memory. Note in the README that this is per serverless instance and a real deployment would use a shared store.
+| 504 | `timeout` | the model call exceeded the timeout |
 
 `GET /api/health` returns `{ "status": "ok", "time": "..." }`.
 
 ## Browser flow and UI
 
-**Compression** (`compress.ts`): decode with `createImageBitmap` (respect EXIF orientation), scale so the longest side is at most 1500 px, draw on a canvas, export JPEG at quality 0.85, lowering to 0.7 then 0.55 until under 1 MB. If it is still over 3.5 MB, show an error. Allow picking files up to 10 MB before compression.
+**Compression** (`compress.ts`): decode with `createImageBitmap` (respecting EXIF orientation), scale so the longest side is at most 1500 px, draw on a white canvas, export JPEG at quality 0.85, lowering to 0.7 and then 0.55 until the file is under 1 MB. If the result is still over 3.5 MB, show an error. Files up to 10 MB can be picked.
 
-**Analyze page `/`:**
-1. Upload zone: drag and drop, click, keyboard, and paste. Helper text: "JPEG, PNG or WebP, up to 10 MB".
-2. On selection: validate, compress, show a preview with file name and size, and an "Analyze image" button (explicit click, so nothing is spent by accident).
-3. While analyzing: skeleton in the result card, "Analyzing image..." with `aria-live="polite"`, button disabled.
-4. Success: verdict card per AGENTS.md (icon, label, confidence bar, reason, file name, timestamp, "Low confidence" badge). Primary action: "Analyze another".
-5. Error: inline alert with a clear cause and a Retry button. A user can always recover without reloading.
+**Analyze page `/`** (two columns on desktop, upload on the left and result on the right, stacked on narrow screens; the columns always have the same height):
 
-**App shell:** top bar with "Hot Dog or Not" and an "Enterprise Edition" badge, one centered `max-w-5xl` container, footer privacy note: "Images are processed in memory and are not stored." (Change this wording in Spec 03 when Pro history exists.) Apply the theme tokens from AGENTS.md in `globals.css`. Inter via `next/font`.
+1. Upload zone: drag and drop, click, keyboard, and paste (a toast confirms a pasted image). Helper text: "JPEG, PNG or WebP, up to 10 MB".
+2. On selection: validate, compress, show a preview with file name and size. The "Analyze image" button is inside the upload card, so nothing is sent until it is clicked.
+3. Before a result exists, the right column shows a placeholder. While analyzing, it shows a skeleton and "Analyzing image..." announced with `aria-live="polite"`. The button is disabled.
+4. Success: verdict card (icon, label, confidence bar, reason, file name, timestamp, "Low confidence" badge). Primary action: "Analyze another".
+5. Error: inline alert with a clear cause and a retry button. The user can always recover without reloading. The browser request times out after 35 s.
+
+**App shell:** a top bar with "Hot Dog or Not" and one centered `max-w-5xl` container. There is no footer. Theme tokens come from AGENTS.md (`app/globals.css`), and the font is Inter via `next/font`.
 
 ## Tests
 
-- `validation/file`: accepts the 3 types, rejects others, rejects oversize, rejects a PNG whose bytes are not PNG.
-- `AnalysisSchema`: accepts valid output, rejects bad verdict and confidence outside 0 to 1.
-- `classify` with a mocked OpenAI client: success, refusal, malformed output then success on retry, timeout.
-- `/api/analyze` route with `classify` mocked: each error code in the table.
-- `compress`: skipped if it needs a real canvas; keep the logic small and covered by manual testing.
+- File validation: accepts the three types, rejects others, rejects oversize, rejects a PNG whose bytes are not PNG.
+- `AnalysisSchema`: accepts valid output, rejects a bad verdict, confidence outside 0 to 1, and an overlong reason.
+- `classifyImage` with a mocked OpenAI client: success, refusal, malformed output then success on retry, timeout, 429 and 5xx retries, image-related 400, and no image data in logs.
+- `/api/analyze` route with the classifier mocked: every error code in the table.
+- Rate limiter: limit, retry time, window reset, independent keys.
+- Compression: the scaling helper is tested. The canvas code is checked manually.
 
 ## Acceptance criteria
 
-- [ ] Live URL works in an incognito window on desktop and a phone-width viewport.
-- [ ] A clear hot dog photo returns "Hot Dog"; a pizza photo returns "Not Hot Dog".
-- [ ] A 6 MB phone photo works (compressed in the browser). A 12 MB file shows a friendly size error.
-- [ ] A PDF renamed to `.jpg` is rejected with a friendly message.
-- [ ] Unplugging the API key (invalid key) shows the `model_error` message, not a crash.
-- [ ] Lint, tests, build green in CI. Deployed. Committed with a clear message.
-
-## README notes to capture
-
-Hot Dog definition and why, confidence handling, why compression happens in the browser (4.5 MB platform limit), the in-memory rate limiter caveat, and the retry and error design.
-
-## Implementation notes and spec updates
-
-Changes made while implementing this spec, and decisions taken with the product owner.
-
-**Decisions**
-
-- **Image detail is `"auto"`** (owner decision). AGENTS.md suggested `"low"` only if accuracy holds on tricky images; that was not testable without real images. It is one constant (`IMAGE_DETAIL` in `lib/analyze/classify.ts`).
-- **The setup-check page and `GET /api/check` were removed** (owner decision). The home page is now the analyzer. `lib/supabase.ts` and the Supabase variables in `.env.example` stay because Specs 02 and later need them.
-- **Retry policy.** One retry, after 500 ms, for rate limits (429), server errors (5xx), connection errors and output that fails validation. No retry for a refusal, a 400, or a timeout. The OpenAI SDK's own retries are off (`maxRetries: 0`) so this policy is the only one.
-- **400 responses** map to `image_rejected` only when the error code mentions an image or content policy. Any other 400 is `model_error`, so a bug on our side is never shown as "your image was rejected".
-
-**Deviations from the spec text**
-
-- **Two schemas.** `ModelOutputSchema` (sent to OpenAI) has plain types only. `AnalysisSchema` (the contract above, with `min(0).max(1)` and `max(200)`) validates the parsed output. Reason: OpenAI structured outputs may ignore or reject range and length keywords. This is not confirmed against OpenAI's documentation and should be checked.
-- **Extra files:** `lib/analyze/errors.ts` (error codes, user messages, `AnalyzeError`) and `components/analyzer.tsx` (client component holding the upload, compress, analyze, result state). `app/page.tsx` stays a server component.
-- **`GET /api/health`** returns `{ "status": "ok", "time": "..." }` as specified.
-- **Rate limit** is 20 requests per minute per IP in memory, with `Retry-After`, as specified.
-- **`maxDuration = 30`** on the analyze route, above the 20 s model timeout. The current Vercel limit for the plan was not checked.
-- **Client request timeout** is 35 s, then a network-style error message is shown.
-- **Sonner** is used for one transient toast ("Image added from clipboard"). Errors stay inline. The toaster is forced to the light theme, so `next-themes` was removed.
-- **Theme:** the palette is the one in AGENTS.md (warm stone neutrals, mustard-brown primary). Dark mode styles were removed from `globals.css`.
-- **Dependencies:** shadcn/ui added `@base-ui/react`, `class-variance-authority`, `cn` (a shadcn-ui package replacing clsx and tailwind-merge), `lucide-react`, `tw-animate-css` and `shadcn`. Tailwind stays pinned to 4.1.18.
-
-**Not verified yet**
-
-- No real OpenAI call has been made. Still to confirm: the structured-output schema is accepted by the configured model, and that the model does not need an explicit reasoning setting to answer within the timeout.
-- The UI was not opened in a browser at 375 px and desktop width. No acceptance criterion above is ticked yet.
+- [ ] The live URL works in an incognito window on desktop and at phone width.
+- [ ] A clear hot dog photo returns "Hot Dog" and a pizza photo returns "Not Hot Dog".
+- [ ] A 6 MB phone photo works (compressed in the browser). A 12 MB file shows a size error.
+- [ ] A PDF renamed to `.jpg` is rejected with a clear message.
+- [ ] An invalid API key shows the `model_error` message, not a crash.
+- [ ] Lint, tests and build pass in CI.

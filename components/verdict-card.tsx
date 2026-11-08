@@ -19,7 +19,7 @@ export function VerdictCard({ result, fileName, saveStatus, onReset }: Props) {
   const tone = isHotDog ? "bg-hotdog text-hotdog-foreground" : "bg-nothotdog text-nothotdog-foreground";
 
   return (
-    <Card className="[--card-spacing:--spacing(6)]">
+    <Card className="flex-1 [--card-spacing:--spacing(6)]">
       <CardContent className="flex flex-col gap-6">
         <div className={`flex items-center gap-4 rounded-lg px-4 py-4 ${tone}`}>
           <Icon aria-hidden="true" className="size-10 shrink-0" />

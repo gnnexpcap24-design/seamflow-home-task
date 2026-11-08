@@ -14,6 +14,7 @@ import { POST as flag } from "@/app/api/scans/[id]/flag/route";
 import { GET as stats } from "@/app/api/stats/route";
 import { GET as list } from "@/app/api/scans/route";
 import { encodeCursor } from "@/lib/scans/cursor";
+import { HISTORY_PAGE_SIZE } from "@/lib/scans/shared";
 
 const ID = "5d1f6c1e-5c0a-4a52-9d58-3c5d2f8e7a10";
 const owner = { identity: { kind: "user", plan: "pro", userId: "owner-1", email: null } };
@@ -42,7 +43,7 @@ describe("GET /api/scans", () => {
 
   it("uses the signed-in user's id, never an id from the request", async () => {
     await get(`?userId=someone-else&user_id=someone-else`);
-    expect(listScans).toHaveBeenCalledWith("owner-1", expect.objectContaining({ limit: 20 }));
+    expect(listScans).toHaveBeenCalledWith("owner-1", expect.objectContaining({ limit: HISTORY_PAGE_SIZE }));
   });
 
   it("caps the limit at 50 and passes the verdict filter and cursor", async () => {

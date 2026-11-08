@@ -6,9 +6,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BATCH_MAX_FILES } from "@/lib/plans";
 import { ALLOWED_TYPES } from "@/lib/validation/file";
 
-type Props = { disabled: boolean; onSelect: (files: File[]) => void };
+type Props = { disabled: boolean; compact: boolean; onSelect: (files: File[]) => void };
 
-export function BatchDropZone({ disabled, onSelect }: Props) {
+export function BatchDropZone({ disabled, compact, onSelect }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -31,8 +31,8 @@ export function BatchDropZone({ disabled, onSelect }: Props) {
   }
 
   return (
-    <Card className="border-2 border-dashed ring-0 [--card-spacing:--spacing(6)]">
-      <CardContent>
+    <Card className={`border-2 border-dashed border-foreground/20 shadow-none ring-0 ${compact ? "[--card-spacing:--spacing(3)]" : "flex-1 [--card-spacing:--spacing(6)]"}`}>
+      <CardContent className="flex flex-1 flex-col">
         <input
           ref={inputRef}
           type="file"
@@ -61,15 +61,28 @@ export function BatchDropZone({ disabled, onSelect }: Props) {
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
-          className={`flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg px-4 text-center outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 ${
-            dragging ? "bg-muted" : ""
+          className={`flex ${compact ? "min-h-16" : "min-h-44 flex-1"} cursor-pointer ${compact ? "flex-row" : "flex-col"} items-center justify-center gap-2 rounded-lg px-4 text-center outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 ${
+            dragging ? "bg-muted" : "hover:bg-muted/50"
           }`}
         >
-          <ImagesIcon aria-hidden="true" className="size-8 text-muted-foreground" />
-          <p className="text-base font-medium">Drop images here or click to browse</p>
-          <p className="text-sm text-muted-foreground">
-            Up to {BATCH_MAX_FILES} images. JPEG, PNG or WebP, up to 10 MB each
-          </p>
+          {compact ? (
+            <>
+              <span className="flex size-10 items-center justify-center rounded-full bg-muted text-foreground">
+                <ImagesIcon aria-hidden="true" className="size-5" />
+              </span>
+              <p className="text-sm font-medium">Add more images</p>
+            </>
+          ) : (
+            <>
+              <span className="flex size-14 items-center justify-center rounded-full bg-muted text-foreground">
+                <ImagesIcon aria-hidden="true" className="size-7" />
+              </span>
+              <p className="text-base font-medium">Drop images here or click to browse</p>
+              <p className="text-sm text-muted-foreground">
+                Up to {BATCH_MAX_FILES} images. JPEG, PNG or WebP, up to 10 MB each
+              </p>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>

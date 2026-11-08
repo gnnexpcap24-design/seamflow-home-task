@@ -1,128 +1,102 @@
-# Spec 03 – Scan history, signed URLs, and insights (Pro)
+# Spec 03 – Scan history and insights (Pro)
 
-**Goal:** Pro accounts keep a private history of their scans and see simple insights. Images stay private and are only shown through short-lived signed URLs.
-**Depends on:** Specs 01 and 02 deployed (plans, `requirePlan`, service role client).
+**Goal:** Pro accounts keep a private history of their scans and see simple insights. Images stay private and are shown only through short-lived signed URLs.
+**Depends on:** Specs 01 and 02 (plans, `requirePlan`, service role client).
 
-## Plans at a glance
+## Decisions
 
-| | Visitor | Free account | Pro |
-|---|---|---|---|
-| Scans | 3 total | 5 total | Unlimited |
-| Stored history | No | No | Yes |
-| Batch upload | No | No | Yes |
-| Insights dashboard | No | No | Yes |
-
-## Decisions (and why)
-
-- **Only Pro scans are stored.** Visitors and free accounts are never stored, which matches the footer promise and keeps data minimal.
+- **Only Pro scans are stored.** Visitors and free accounts are never stored, which keeps stored data minimal.
 - **Private bucket plus signed URLs.** The database stores image paths, never URLs, because signed URLs expire. URLs are generated on demand in one batch call per page.
-- **The verdict always comes first.** Saving is best-effort: if storage or the database fails, the user still gets the verdict, and the error is logged.
-- **Charts use the shadcn/ui `chart` component, which wraps Recharts.** Hand-built CSS or SVG charts cost time and look rough, and shadcn already ships a themed chart wrapper (`ChartContainer`, `ChartConfig`, `ChartTooltip`, `ChartLegend`). It reads the same CSS variables as the rest of the UI, so charts match the theme with no extra styling work.
-- **New dependency:** add it with `npx shadcn@latest add chart`. This installs `recharts` and generates `components/ui/chart.tsx`. No other chart or visualisation library is added.
+- **The verdict always comes first.** Saving is best-effort: if storage or the database fails, the user still gets the verdict and the error is logged.
+- **History belongs to the signed-in user** (`user_id` on each row), taken from the verified session and never from the request.
+- **Charts use the shadcn/ui `chart` component, which wraps Recharts.** It is added with `npx shadcn@latest add chart`, which installs `recharts` and generates `components/ui/chart.tsx`. It reads the same CSS variables as the rest of the UI. No other chart library is used.
+- **No retention in this spec.** Scans are kept until the user deletes them, so the UI and README do not claim a retention period. The cleanup is described in `specs/05-next-steps.md`.
 
-## Database and storage (`supabase/migrations/003_scans.sql`)
+## Database and storage
 
-```sql
-create table public.scans (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  batch_id uuid,                       -- used by Spec 04
-  file_name text not null,
-  image_path text not null,            -- path in the bucket, never a URL
-  verdict text not null check (verdict in ('hot_dog','not_hot_dog')),
-  confidence numeric not null check (confidence >= 0 and confidence <= 1),
-  reason text,
-  flagged boolean not null default false,
-  created_at timestamptz not null default now()
-);
-create index scans_user_created_idx on public.scans (user_id, created_at desc, id desc);
-alter table public.scans enable row level security;
-create policy "read own scans" on public.scans for select using (auth.uid() = user_id);
--- Writes happen only on the server with the service role key.
-```
+Migration `supabase/migrations/20261108120502_scans_history_and_storage.sql` creates:
 
-- Create a **private** storage bucket named `scans`. Add no public policies; only the server (service role) reads and writes.
-- Object path: `{user_id}/{scan_id}.{ext}`, built on the server only.
+- **`scans`:** `id`, `user_id` (references `auth.users`, cascade delete), `batch_id` (used by Spec 04), `file_name`, `image_path` (a bucket path, never a URL), `verdict`, `confidence` (0 to 1), `reason`, `flagged`, `created_at`. An index on `(user_id, created_at desc, id desc)` supports pagination. Row-level security allows a user to read only their own rows. There is no insert, update or delete policy: writes happen only on the server with the service role key.
+- **A private storage bucket `scans`** with a 4 MB file size limit and JPEG, PNG and WebP only. It has no public policies, so only the server reads and writes it. Object paths are `{user_id}/{scan_id}.{ext}` (`jpg`, `png` or `webp`) and are built on the server only.
+- **`scan_stats(p_user, p_days, p_low_confidence)`:** one aggregate query for insights, scoped to a user and callable only by the service role. Days are UTC dates.
 
 ## Saving a scan (extends `/api/analyze`)
 
 After a successful classification, if the plan has `history: true`:
-1. Generate `scanId` (uuid).
+
+1. Generate `scanId` (a uuid).
 2. Upload the received (already compressed) image to `scans/{user_id}/{scanId}.{ext}` with the correct content type.
-3. Insert the row (`file_name` sanitized, verdict, confidence, reason, optional `batch_id`).
-4. Wrap steps 2 and 3 in try/catch. If the insert fails after the upload, delete the uploaded object. Log errors without image data.
+3. Insert the row with the file name sanitized (path and control characters removed, at most 100 characters, `image` if empty), verdict, confidence, reason and the optional `batch_id`.
+4. If the insert fails after the upload, delete the uploaded object. Errors are logged without image data.
 5. Add `saved: boolean` and `scanId` (when saved) to the response.
 
-Free accounts and visitors: skip all of this, `saved: false`.
+Free accounts and visitors skip all of this and get `saved: false`.
 
 ## API
 
-All routes call `requirePlan("pro")` and use the signed-in user's id from `getUser()`, never an id from the request.
+All routes call `requirePlan("pro")` and use the signed-in user's id, never an id from the request.
 
-**`GET /api/scans?limit=20&cursor=...&verdict=...`**
-- Keyset pagination on `(created_at, id)` descending. Cursor is an opaque base64 string.
-- Optional `verdict` filter. Limit capped at 50.
-- Fetch one extra row to compute `nextCursor`.
-- Create signed URLs for the page in a single `createSignedUrls(paths, 3600)` call.
-- Response: `{ items: [{ id, fileName, verdict, confidence, reason, createdAt, flagged, thumbUrl }], nextCursor }`. `thumbUrl` is null if signing fails for that item.
+**`GET /api/scans?limit=6&cursor=...&verdict=...`**
+
+- Keyset pagination on `(created_at, id)` descending. The cursor is an opaque base64 string that carries the timestamp as the database returns it (with microseconds) and is validated before it is used in a query.
+- `limit` defaults to 6 and is capped at 50. An optional `verdict` filter accepts `hot_dog` or `not_hot_dog`. An invalid limit, verdict or cursor returns 400 `invalid_request`.
+- One extra row is fetched to compute `nextCursor`. Signed URLs (1 hour) for the page are created in a single `createSignedUrls` call.
+- Response: `{ items: [{ id, batchId, fileName, verdict, confidence, reason, createdAt, flagged, thumbUrl }], nextCursor }`. `thumbUrl` is null if signing fails for that item.
 
 **`DELETE /api/scans/:id`**
-- Validate that `:id` is a uuid. Load the row filtered by `user_id`. If it does not exist, return 404 (same for other people's scans).
-- Delete the storage object, then the row. Return 204.
 
-**`POST /api/scans/:id/flag`**: toggles `flagged` ("this result was wrong") for the owner's scan. Returns the new value.
+- `:id` must be a uuid (otherwise 400). The row is loaded filtered by `user_id`. If it does not exist, or belongs to someone else, the response is 404 `not_found`.
+- The storage object is deleted first, then the row. Response: 204. If the file cannot be deleted, the row is kept.
 
-**`GET /api/stats`** (single SQL aggregate or RPC, scoped to the user):
+**`POST /api/scans/:id/flag`** toggles `flagged` ("this result was wrong") on the caller's scan and returns `{ flagged }`. Another user's scan returns 404.
+
+**`GET /api/stats`**
+
 ```json
 { "total": 42, "hotDogs": 18, "notHotDogs": 24, "hotDogRate": 0.43,
   "avgConfidence": 0.91, "lowConfidence": 3, "flagged": 2,
   "perDay": [{ "date": "2026-11-07", "hotDogs": 2, "notHotDogs": 4 }] }
 ```
-`perDay` covers the last 14 days, including zero days (fill gaps in code). Each entry splits the day into hot dogs and not hot dogs so the chart can show the verdict mix. The day's total is the sum of the two.
 
-**Retention**: not part of this spec. Scans are kept until the user deletes them, so neither the UI nor the README may claim a retention period (say "retention policy planned"). The cleanup job is described in `specs/05-next-steps.md`.
+`perDay` covers the last 14 UTC days, including days without scans (filled in by the application). The day's total is the sum of the two counts. "Low confidence" counts scans below 0.70.
 
 ## UI
 
 **History page `/history`**
-- Non-Pro: upsell card ("Scan history is a Pro feature") with a link to `/pricing`. Do not call the API.
-- Pro: responsive grid or table. Each item: thumbnail (signed URL), verdict badge (icon + text), confidence, relative time, file name, delete button, flag button.
-- "Load more" button using `nextCursor`. Verdict filter tabs.
-- Delete asks for confirmation (shadcn AlertDialog) and updates the list optimistically with rollback on error.
-- Empty state: explanation and a link to analyze an image. Loading: skeleton cards. Error: inline alert with retry.
-- If an image fails to load because its signed URL expired, refetch that page once.
+
+- Non-Pro users see an upsell card ("Scan history is a Pro feature") with a link to `/pricing`, and the API is not called.
+- Pro users see a title with the line "Your saved scans, kept private and visible only to you", verdict filter tabs (All, Hot Dog, Not Hot Dog) and a card grid. Each card shows a thumbnail (signed URL), verdict badge (icon and text), confidence, relative time, file name, one-line reason, a "Batch" badge when the scan belongs to a batch, a flag button and a delete button.
+- 6 cards per page, with Previous and Next buttons and the current page number. The browser remembers the cursor of each page it has visited, which is what makes Previous possible. Changing the filter returns to page 1.
+- Delete asks for confirmation (shadcn AlertDialog) and removes the card optimistically, with rollback on error. Afterwards the page is reloaded so it refills, or the list steps back if the page became empty.
+- States: skeleton cards while loading, an inline alert with retry on error, and an empty state with a link to the analyze page.
+- If an image fails to load because its signed URL expired, the current page is reloaded once to get new URLs. Cards without a URL show "Preview unavailable".
 
 **Insights page `/insights`**
-- Non-Pro: upsell card.
-- Pro: stat cards (total scans, hot dog rate, average confidence, low-confidence count, flagged count) and one chart, a 14-day stacked bar chart (hot dogs and not hot dogs per day) built with the shadcn `chart` component (Recharts). Empty state when there are no scans.
-- **Chart details:**
-  - Wrap the chart in `ChartContainer` with a `ChartConfig` that defines both series (label and color). Give the container a fixed height or `min-h-*`, otherwise it renders at zero height.
-  - Colors come from theme tokens: add `--chart-1` and `--chart-2` to `app/globals.css` (and the matching `--color-chart-*` entries in `@theme inline`, which were removed in Spec 01). Hot dogs use the primary accent, not hot dogs use a neutral. Reference them as `var(--color-hotdogs)` and `var(--color-nothotdogs)`.
-  - Use `ChartTooltip` with `ChartTooltipContent` so hovering or focusing a bar shows the day and both counts. Add `ChartLegend` with `ChartLegendContent`.
-  - Set `accessibilityLayer` on the Recharts chart for keyboard and screen reader access, and keep a short text summary under the chart (for example "42 scans in the last 14 days, 18 hot dogs") so the data is available without the graphic.
-  - Never rely on color alone: the legend labels both series, and the tooltip shows text labels.
-  - Show a skeleton while loading, an inline error alert with retry on failure, and the empty state when there are no scans.
 
-**Top bar nav:** add History and Insights links. Update the footer note to: "Images are processed in memory. Pro accounts keep a private history that only you can see."
+- Non-Pro users see an upsell card.
+- Pro users see five stat cards (total scans, hot dog rate, average confidence, low-confidence count, flagged count) and one chart: a 14-day stacked bar chart of hot dogs and not hot dogs per day.
+- The chart uses `ChartContainer` with a fixed height, a `ChartConfig` for the two series (`hotDogs` and `notHotDogs`), `ChartTooltip` and `ChartLegend`, and `accessibilityLayer`. Colors come from the theme tokens `--chart-1` (green, the same as the Hot Dog verdict) and `--chart-2` (neutral), referenced as `--color-hotDogs` and `--color-notHotDogs`. A text summary under the chart gives the totals for the 14 days. Color is never the only signal: the legend and tooltip use text labels.
+- States: skeleton while loading, an inline alert with retry on error, and an empty state when there are no scans.
 
-**Analyze page:** for Pro, show a small "Saved to history" indicator when `saved` is true, and a quiet "Could not save to history" note when false (the verdict still shows).
+**Navigation and the analyze page:** the top bar has History and Insights links. On the analyze page, Pro accounts see "Saved to history" when `saved` is true and a quiet "Could not save to history" note when it is false. The verdict always shows. Free accounts and visitors see no note.
 
 ## Security checklist
 
-- Every route checks plan and ownership. User B must never read, sign, or delete user A's data.
-- Paths are constructed on the server from verified ids. Never accept a path from the client.
-- Bucket stays private. A bare object URL without a signature must not work.
-- Signed URL lifetime: 1 hour. Never store URLs in the database.
-- Sanitize `file_name` (trim, limit length, strip path characters) and render it as text only.
+- Every route checks the plan and ownership. One user must never read, sign, or delete another user's data.
+- Paths are constructed on the server from verified ids. A path from the client is never accepted.
+- The bucket stays private. A bare object URL without a signature must not work.
+- Signed URLs last 1 hour and are never stored in the database.
+- File names are sanitized and rendered as text only.
 
 ## Tests
 
-- Cursor encode/decode and pagination boundaries (exactly 20 items, 21 items, empty).
-- Stats calculation as a pure function (rates, gap filling for `perDay`, the hot dog and not hot dog split per day).
-- No render test for the chart itself: Recharts needs real layout, which the test environment does not provide. Keep all data shaping in the pure stats function so the chart component only renders what it is given, and check the chart visually.
-- `/api/scans`: 401 without a session, 403 for non-Pro, only own rows returned, `thumbUrl` null when signing fails.
-- Delete: 404 for someone else's scan, removes object and row for the owner.
-- Analyze route with a mocked storage failure still returns the verdict with `saved: false`.
+- Cursor encoding and decoding, and pagination boundaries (exactly one page of items, one item more than a page, empty).
+- Stats as a pure function: rates, rounding, gap filling for `perDay`, the daily hot dog and not hot dog split.
+- File name sanitizing and relative time formatting.
+- `/api/scans`: 401 without a session, 403 for non-Pro, only the caller's rows, the limit cap, invalid query values, `thumbUrl` null when signing fails.
+- Delete: 404 for someone else's scan, file and row removed for the owner, the row kept when the file cannot be removed. Flag: toggle and 404.
+- Saving: the upload and insert order, cleanup when the insert fails, and the analyze route still returning the verdict with `saved: false` when saving fails.
+- The chart itself has no render test, because Recharts needs real layout. All data shaping lives in the pure stats function.
 
 ## Acceptance criteria
 
@@ -130,38 +104,8 @@ All routes call `requirePlan("pro")` and use the signed-in user's id from `getUs
 - [ ] Opening the raw storage path (no signature) fails. A signed URL works, then stops after expiry.
 - [ ] With two Pro accounts, neither can see or delete the other's scans (check both the UI and direct API calls).
 - [ ] Delete removes the row and the file.
-- [ ] Pagination works: 20 per page, "Load more" fetches the next page without duplicates.
+- [ ] Pagination works: 6 per page, Next and Previous move between pages without duplicates or gaps, and a full desktop page fits on screen without scrolling.
 - [ ] Insights numbers match the history list, and the chart bars add up to the stat cards.
-- [ ] The chart renders at 375 px and at desktop width, uses the theme colors, and its tooltip shows both counts for a day (by hover and by keyboard focus).
-- [ ] Break the storage upload on purpose: the verdict still shows and the user sees the soft "not saved" note.
-- [ ] Lint, tests, build green in CI. Deployed. Committed with a clear message.
-
-## README notes to capture
-
-Why the shadcn chart component (Recharts) instead of hand-built charts, why private storage and signed URLs, path-not-URL storage, best-effort saving, Pro-only storage and the privacy reasoning, that retention is planned and not yet implemented, and what a production version would add (audit log, workspaces, SSO).
-
-## Implementation notes and spec updates
-
-Changes made while implementing this spec, and decisions taken with the product owner.
-
-**Decisions**
-
-- **History belongs to the signed-in Pro user, as this spec says.** AGENTS.md previously described per-browser-session history with a cookie. It was updated to match this spec.
-- **Retention was removed from this spec** (owner decision). There is no cleanup job, no cron route and no `RETENTION_DAYS` constant. The design is kept as a next step in `specs/05-next-steps.md`.
-- **README changes are deferred** to the end of the task (owner decision).
-
-**Deviations from the spec text**
-
-- **Migration** is the timestamped file `supabase/migrations/20261108120502_scans_history_and_storage.sql`. It also creates the private `scans` bucket (with a 4 MB size limit and image types only) and the `scan_stats` function, so one `db push` sets everything up.
-- **Stats** are computed by one SQL function, `scan_stats(p_user, p_days, p_low_confidence)`, callable only by the service role. It returns totals and per-day counts as JSON. The application then computes the hot dog rate, rounds the average and fills the empty days, so that logic stays in a unit-tested pure function. Days are UTC dates.
-- **Chart series keys** are `hotDogs` and `notHotDogs` (they match the `perDay` field names), so the CSS variables are `--color-hotDogs` and `--color-notHotDogs`, not the lowercase names written above. The theme tokens are `--chart-1` (accent) and `--chart-2` (neutral).
-- **New error code** `not_found` (404), used when a scan does not exist or is not the caller's.
-- **Cursor** carries the timestamp as the database returns it, with microseconds, and is validated before it is used in the query filter.
-- **Image refresh:** when an image fails to load, every loaded page is refetched once to get new signed URLs. This happens at most once per list load.
-- **Saved note:** "Saved to history" and "Could not save to history" are shown only to Pro accounts. Free accounts and visitors see nothing about history on the analyze page.
-- **Extra files:** `lib/scans/` (`shared.ts`, `cursor.ts`, `sanitize.ts`, `stats.ts`, `repository.ts`, `save.ts`), `lib/auth/is-pro.ts`, `lib/format.ts`, `components/history/`, `components/insights/`, `components/verdict-badge.tsx`, `components/upsell-card.tsx`.
-- **Dependencies:** `recharts` (through the shadcn `chart` component). shadcn `tabs` and `alert-dialog` were also added.
-
-**Not verified yet**
-
-- The migration has not been applied from this environment, and no real Supabase project was used. The storage, signed URL and chart behaviour is covered by unit tests with mocked clients only, and the chart was not looked at in a browser. None of the acceptance criteria is ticked.
+- [ ] The chart renders at 375 px and at desktop width, and its tooltip shows both counts for a day (by hover and by keyboard focus).
+- [ ] With the storage upload broken on purpose, the verdict still shows and the user sees the "Could not save to history" note.
+- [ ] Lint, tests and build pass in CI.

@@ -19,7 +19,10 @@ export function HomeWorkspace() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Analyze</h1>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold">Analyze</h1>
+        <p className="text-muted-foreground">Upload an image and get a definitive Hot Dog or Not Hot Dog verdict.</p>
+      </div>
       <Tabs value={mode} onValueChange={(value) => setMode(value as Mode)}>
         <div className="flex flex-col gap-2">
           <TabsList className="h-11">
@@ -32,7 +35,7 @@ export function HomeWorkspace() {
           {me && !batchAllowed && (
             <p className="text-sm text-muted-foreground">
               Batch upload is part of the Pro plan.{" "}
-              <Link href="/pricing" className="font-medium text-primary underline-offset-4 hover:underline">
+              <Link href="/pricing" className="font-medium text-foreground underline underline-offset-4 hover:no-underline">
                 View plans
               </Link>
             </p>

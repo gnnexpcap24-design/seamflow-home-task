@@ -35,57 +35,65 @@ function StatusBadge({ status }: { status: ItemStatus }) {
   );
 }
 
+// Compact rows (thumbnail, name and reason, verdict, status) so a full page of results fits on screen.
 export function BatchTable({ items, previews, onRetry }: Props) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-16">Image</TableHead>
           <TableHead>File</TableHead>
-          <TableHead>Status</TableHead>
           <TableHead>Verdict</TableHead>
-          <TableHead className="text-right">Confidence</TableHead>
-          <TableHead>Reason</TableHead>
-          <TableHead className="w-14">
-            <span className="sr-only">Actions</span>
-          </TableHead>
+          <TableHead>Status</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {items.map((item) => (
-          <TableRow key={item.id}>
-            <TableCell>
-              {previews[item.id] && (
-                // eslint-disable-next-line @next/next/no-img-element -- local blob URL
-                <img src={previews[item.id]} alt={`Thumbnail of ${item.file.name}`} className="size-12 rounded-md object-cover" />
-              )}
-            </TableCell>
-            <TableCell className="max-w-48">
-              <p className="truncate font-medium" title={item.file.name}>{item.file.name}</p>
-              <p className="text-xs text-muted-foreground tabular-nums">{formatSize(item.file.size)}</p>
-            </TableCell>
-            <TableCell><StatusBadge status={item.status} /></TableCell>
-            <TableCell>{item.result && <VerdictBadge verdict={item.result.verdict} />}</TableCell>
-            <TableCell className="text-right tabular-nums">
-              {item.result && (
-                <span className="inline-flex items-center gap-2">
-                  {item.result.lowConfidence && <Badge variant="outline">Low</Badge>}
-                  {formatPercent(item.result.confidence)}
-                </span>
-              )}
-            </TableCell>
-            <TableCell className="max-w-72 whitespace-normal">
-              {item.error ? <span className="text-error-foreground">{item.error.message}</span> : item.result?.reason}
-            </TableCell>
-            <TableCell>
-              {(item.status === "failed" || item.status === "canceled") && (
-                <Button variant="ghost" className="size-11" aria-label={`Retry ${item.file.name}`} onClick={() => onRetry(item.id)}>
-                  <RotateCcwIcon aria-hidden="true" />
-                </Button>
-              )}
-            </TableCell>
-          </TableRow>
-        ))}
+        {items.map((item) => {
+          const detail = item.error?.message ?? item.result?.reason;
+          return (
+            <TableRow key={item.id}>
+              <TableCell className="max-w-0 w-full">
+                <div className="flex items-center gap-3">
+                  {previews[item.id] && (
+                    // eslint-disable-next-line @next/next/no-img-element -- local blob URL
+                    <img src={previews[item.id]} alt={`Thumbnail of ${item.file.name}`} className="size-12 shrink-0 rounded-md object-cover" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" title={item.file.name}>{item.file.name}</p>
+                    <p className="truncate text-xs text-muted-foreground tabular-nums">
+                      {formatSize(item.file.size)}
+                    </p>
+                    {detail && (
+                      <p className={item.error ? "truncate text-xs text-error-foreground" : "truncate text-xs text-muted-foreground"} title={detail}>
+                        {detail}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell>
+                {item.result && (
+                  <div className="flex flex-col items-start gap-1">
+                    <VerdictBadge verdict={item.result.verdict} />
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                      {formatPercent(item.result.confidence)}
+                      {item.result.lowConfidence && <Badge variant="outline">Low</Badge>}
+                    </span>
+                  </div>
+                )}
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  <StatusBadge status={item.status} />
+                  {(item.status === "failed" || item.status === "canceled") && (
+                    <Button variant="ghost" className="size-11" aria-label={`Retry ${item.file.name}`} onClick={() => onRetry(item.id)}>
+                      <RotateCcwIcon aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

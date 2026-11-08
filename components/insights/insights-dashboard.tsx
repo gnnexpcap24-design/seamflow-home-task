@@ -42,7 +42,10 @@ export function InsightsDashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Insights</h1>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold">Insights</h1>
+        <p className="text-muted-foreground">How your scans break down by verdict and by day.</p>
+      </div>
       {state.status === "loading" && <LoadingState />}
       {state.status === "error" && (
         <ErrorAlert title="Could not load insights" message="Your insights could not be loaded. Please try again." onRetry={retry} />

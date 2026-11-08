@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ScanSearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import { ErrorAlert } from "@/components/error-alert";
 import { QuotaDialog } from "@/components/quota-dialog";
@@ -100,28 +101,55 @@ export function Analyzer() {
   const busy = phase === "preparing" || phase === "analyzing";
   const canAnalyze = prepared !== null && (phase === "ready" || phase === "analyzing");
 
+  const showPlaceholder = phase === "idle" || phase === "preparing" || phase === "ready";
+
   return (
-    <div className="flex flex-col gap-6">
-      <UploadZone preview={prepared?.preview ?? null} disabled={busy} onSelect={handleSelect} />
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="flex flex-col">
+        <UploadZone
+          preview={prepared?.preview ?? null}
+          disabled={busy}
+          onSelect={handleSelect}
+          action={
+            canAnalyze && (
+              <Button className="h-11 w-full" onClick={analyze} disabled={phase === "analyzing"}>
+                Analyze image
+              </Button>
+            )
+          }
+        />
+      </div>
 
-      {canAnalyze && (
-        <Button className="h-11 w-fit px-5" onClick={analyze} disabled={phase === "analyzing"}>
-          Analyze image
-        </Button>
-      )}
-
-      <div aria-live="polite">
-        {phase === "preparing" && <p className="text-sm text-muted-foreground">Preparing image...</p>}
+      <div aria-live="polite" className="flex flex-col">
+        {showPlaceholder && <ResultPlaceholder phase={phase} />}
         {phase === "analyzing" && <AnalyzingCard />}
         {phase === "done" && result && prepared && (
           <VerdictCard result={result} fileName={prepared.originalName} saveStatus={saveStatus(result, me?.plan)} onReset={reset} />
         )}
-        {phase === "error" && error && (
-          <ErrorAlert message={error} onRetry={prepared ? analyze : undefined} />
-        )}
+        {phase === "error" && error && <ErrorAlert message={error} onRetry={prepared ? analyze : undefined} />}
       </div>
       <QuotaDialog target={limitTarget} onClose={() => setLimitTarget(null)} />
     </div>
+  );
+}
+
+const PLACEHOLDER_TEXT: Record<"idle" | "preparing" | "ready", string> = {
+  idle: "Your verdict will appear here.",
+  preparing: "Preparing image...",
+  ready: "Select Analyze image to get the verdict.",
+};
+
+// Keeps the right column occupied, so the page looks balanced before a result exists.
+function ResultPlaceholder({ phase }: { phase: "idle" | "preparing" | "ready" }) {
+  return (
+    <Card className="min-h-64 flex-1 justify-center border-dashed shadow-none [--card-spacing:--spacing(6)]">
+      <CardContent className="flex flex-col items-center gap-3 text-center">
+        <span className="flex size-12 items-center justify-center rounded-full bg-muted">
+          <ScanSearchIcon aria-hidden="true" className="size-6" />
+        </span>
+        <p className="text-sm text-muted-foreground">{PLACEHOLDER_TEXT[phase]}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -133,7 +161,7 @@ function saveStatus(result: AnalyzeResponse, plan: PlanName | undefined): "saved
 
 function AnalyzingCard() {
   return (
-    <Card className="[--card-spacing:--spacing(6)]">
+    <Card className="min-h-64 flex-1 [--card-spacing:--spacing(6)]">
       <CardContent className="flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">Analyzing image...</p>
         <Skeleton className="h-14 w-full" />

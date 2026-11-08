@@ -27,3 +27,12 @@ export function filterAndSort(items: readonly BatchItem[], { verdict, status, so
   );
   return sort === "none" ? visible : visible.sort(byConfidence(sort));
 }
+
+export const BATCH_PAGE_SIZE = 5;
+
+// One page of a list. An out-of-range page number is moved to the nearest valid page.
+export function paginate<T>(items: readonly T[], page: number, size = BATCH_PAGE_SIZE) {
+  const pageCount = Math.max(1, Math.ceil(items.length / size));
+  const current = Math.min(Math.max(page, 1), pageCount);
+  return { items: items.slice((current - 1) * size, current * size), page: current, pageCount };
+}

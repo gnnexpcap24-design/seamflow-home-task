@@ -7,7 +7,7 @@ import "./globals.css";
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Hot Dog or Not | Enterprise Edition",
+  title: "Hot Dog or Not",
   description: "Upload an image and get a definitive Hot Dog or Not Hot Dog verdict.",
 };
 

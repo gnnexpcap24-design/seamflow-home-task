@@ -15,22 +15,22 @@ type Props = {
 
 export function ScanCard({ scan, onImageError, onDelete, onToggleFlag }: Props) {
   return (
-    <Card className="[--card-spacing:--spacing(4)]">
+    <Card className="[--card-spacing:--spacing(3)]">
       {scan.thumbUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- short-lived signed storage URL
         <img
           src={scan.thumbUrl}
           alt={`Thumbnail of ${scan.fileName}`}
           onError={onImageError}
-          className="aspect-square w-full object-cover"
+          className="aspect-[16/10] w-full object-cover"
         />
       ) : (
-        <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-muted text-sm text-muted-foreground">
+        <div className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-2 bg-muted text-sm text-muted-foreground">
           <ImageOffIcon aria-hidden="true" className="size-6" />
           Preview unavailable
         </div>
       )}
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <VerdictBadge verdict={scan.verdict} />
           <span className="text-sm tabular-nums">{formatPercent(scan.confidence)}</span>
@@ -39,7 +39,7 @@ export function ScanCard({ scan, onImageError, onDelete, onToggleFlag }: Props) 
           <p className="min-w-0 flex-1 truncate text-sm font-medium" title={scan.fileName}>{scan.fileName}</p>
           {scan.batchId && <Badge variant="outline">Batch</Badge>}
         </div>
-        {scan.reason && <p className="text-sm text-muted-foreground">{scan.reason}</p>}
+        {scan.reason && <p className="truncate text-sm text-muted-foreground" title={scan.reason}>{scan.reason}</p>}
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
             {formatRelativeTime(scan.createdAt)}
