@@ -2,13 +2,13 @@ import { CircleAlertIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-type Props = { message: string; onRetry?: () => void };
+type Props = { message: string; title?: string; onRetry?: () => void };
 
-export function ErrorAlert({ message, onRetry }: Props) {
+export function ErrorAlert({ message, title = "Analysis failed", onRetry }: Props) {
   return (
     <Alert className="border-error-foreground/20 bg-error p-4 text-error-foreground">
       <CircleAlertIcon aria-hidden="true" />
-      <AlertTitle>Analysis failed</AlertTitle>
+      <AlertTitle>{title}</AlertTitle>
       <AlertDescription className="text-error-foreground">
         <p>{message}</p>
         {onRetry && (

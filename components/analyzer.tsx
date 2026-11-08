@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorAlert } from "@/components/error-alert";
+import { QuotaDialog } from "@/components/quota-dialog";
+import { useQuota } from "@/components/quota-provider";
 import { UploadZone, type Preview } from "@/components/upload-zone";
 import { VerdictCard } from "@/components/verdict-card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_ERRORS } from "@/lib/analyze/errors";
 import type { AnalyzeResponse } from "@/lib/analyze/schema";
+import type { Quota, UpgradeTarget } from "@/lib/plans";
 import { CompressionError, compressImage } from "@/lib/image/compress";
 import { MAX_PICK_BYTES, validateFileMeta } from "@/lib/validation/file";
 
@@ -24,9 +27,19 @@ function formatSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-class ApiMessageError extends Error {}
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly upgradeTo?: UpgradeTarget | null,
+  ) {
+    super(message);
+  }
+}
 
-async function requestAnalysis(file: File): Promise<AnalyzeResponse> {
+type AnalyzeResult = AnalyzeResponse & { quota: Quota | null };
+
+async function requestAnalysis(file: File): Promise<AnalyzeResult> {
   const body = new FormData();
   body.append("file", file);
   const response = await fetch("/api/analyze", {
@@ -35,8 +48,11 @@ async function requestAnalysis(file: File): Promise<AnalyzeResponse> {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new ApiMessageError(data?.error?.message ?? API_ERRORS.model_error.message);
-  return data as AnalyzeResponse;
+  if (!response.ok) {
+    const apiError = data?.error;
+    throw new ApiRequestError(apiError?.message ?? API_ERRORS.model_error.message, apiError?.code, apiError?.upgradeTo);
+  }
+  return data as AnalyzeResult;
 }
 
 export function Analyzer() {
@@ -44,6 +60,8 @@ export function Analyzer() {
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limitTarget, setLimitTarget] = useState<UpgradeTarget | null>(null);
+  const { setQuota, refresh } = useQuota();
 
   useEffect(() => {
     const url = prepared?.preview.url;
@@ -79,12 +97,25 @@ export function Analyzer() {
     setPhase("analyzing");
     setError(null);
     try {
-      setResult(await requestAnalysis(prepared.file));
+      const { quota, ...analysis } = await requestAnalysis(prepared.file);
+      setResult(analysis);
       setPhase("done");
+      if (quota) setQuota(quota);
+      else void refresh();
     } catch (caught) {
-      setError(caught instanceof ApiMessageError ? caught.message : NETWORK_MESSAGE);
-      setPhase("error");
+      handleAnalyzeError(caught);
     }
+  }
+
+  function handleAnalyzeError(caught: unknown) {
+    if (caught instanceof ApiRequestError && caught.code === "quota_exceeded") {
+      setLimitTarget(caught.upgradeTo ?? "pro");
+      setPhase("ready");
+      void refresh();
+      return;
+    }
+    setError(caught instanceof ApiRequestError ? caught.message : NETWORK_MESSAGE);
+    setPhase("error");
   }
 
   function reset() {
@@ -118,6 +149,7 @@ export function Analyzer() {
           <ErrorAlert message={error} onRetry={prepared ? analyze : undefined} />
         )}
       </div>
+      <QuotaDialog target={limitTarget} onClose={() => setLimitTarget(null)} />
     </div>
   );
 }

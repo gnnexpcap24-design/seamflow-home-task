@@ -5,7 +5,12 @@ export type ApiErrorCode =
   | "image_rejected"
   | "rate_limited"
   | "model_error"
-  | "timeout";
+  | "timeout"
+  | "quota_exceeded"
+  | "unauthorized"
+  | "pro_required"
+  | "invalid_request"
+  | "server_error";
 
 export const API_ERRORS: Record<ApiErrorCode, { status: number; message: string }> = {
   missing_file: { status: 400, message: "No image was received. Choose an image and try again." },
@@ -27,6 +32,14 @@ export const API_ERRORS: Record<ApiErrorCode, { status: number; message: string 
     message: "The analysis service is unavailable right now. Please try again.",
   },
   timeout: { status: 504, message: "The analysis took too long. Please try again." },
+  quota_exceeded: { status: 403, message: "You have used all the scans included in your plan." },
+  unauthorized: { status: 401, message: "Sign in to continue." },
+  pro_required: { status: 403, message: "This feature is part of the Pro plan." },
+  invalid_request: {
+    status: 400,
+    message: "Some of the details are not valid. Check them and try again.",
+  },
+  server_error: { status: 500, message: "Something went wrong on our side. Please try again." },
 };
 
 export type AnalyzeErrorCode = Extract<ApiErrorCode, "image_rejected" | "model_error" | "timeout">;

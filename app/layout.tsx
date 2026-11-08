@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { QuotaProvider } from "@/components/quota-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -14,7 +15,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full" suppressHydrationWarning>
-        {children}
+        <QuotaProvider>{children}</QuotaProvider>
         <Toaster />
       </body>
     </html>

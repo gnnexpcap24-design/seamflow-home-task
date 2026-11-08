@@ -103,7 +103,7 @@ revoke execute on function public.consume_user_scan(uuid, int) from public, anon
 revoke execute on function public.refund_scan(uuid, uuid) from public, anon, authenticated;
 ```
 
-Keep the SQL in the repo and run it in the Supabase SQL editor.
+Keep the SQL in the repo as a migration and apply it with the Supabase CLI (see the implementation notes below).
 
 ## Server logic
 
@@ -138,7 +138,6 @@ Keep the SQL in the repo and run it in the Supabase SQL editor.
 - **`/pricing`:** three plan cards from `lib/plans.ts` with a comparison table. "Pro" has the Upgrade button.
 - **`/upgrade` (demo checkout):** plan summary, fields for company name and billing email, a visible note "Demo checkout. No payment is taken and no card details are collected." Button "Confirm upgrade". Success state with links to History and Batch.
 - **`/account`:** email, plan, scans used, "Sign out", and the demo downgrade.
-- **Google sign-in (optional):** a "Continue with Google" button calling `signInWithOAuth`. Requires the Google provider to be configured beforehand (Google Cloud OAuth client, Supabase provider, redirect URLs).
 
 ## Security checklist
 
@@ -169,3 +168,35 @@ Keep the SQL in the repo and run it in the Supabase SQL editor.
 ## README notes to capture
 
 Visitor tracking choice and its limits, why quota is consumed then refunded, mocked payments and what Stripe would replace, email confirmation off for the demo, and the plan matrix.
+
+## Implementation notes and spec updates
+
+Changes made while implementing this spec, and decisions taken with the product owner.
+
+**Decisions**
+
+- **Google sign-in was removed from this spec** (owner decision). It is described as a next step in `specs/05-next-steps.md`.
+- **`visitor_usage` already existed.** It was created and pushed earlier by `20261107230513_create_visitor_usage.sql`, so the Spec 02 migration does not create it again.
+
+**Deviations from the spec text**
+
+- **Migrations** are timestamped CLI files, not `002_identity.sql`: `supabase/migrations/20261108111020_identity_and_quotas.sql` holds `profiles`, the trigger, the quota functions and the revokes. They are applied with `npx supabase db push --remote`, not the SQL editor. The migration also grants the three functions to `service_role` explicitly, so the revoke from `public` can never remove the server's access.
+- **`proxy.ts` instead of middleware.** Next.js 16 renamed the middleware file. The session refresh and the `/account` and `/upgrade` redirect rules live in `proxy.ts` and `lib/supabase/proxy.ts`.
+- **Env variable name:** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is used instead of the anon key name. `SUPABASE_SERVICE_ROLE_KEY` is server only.
+- **Supabase clients** live in `lib/supabase/` (`admin.ts`, `server.ts`, `browser.ts`, `proxy.ts`). The earlier plain `lib/supabase.ts` was removed.
+- **Rate limit.** Signed-in users are limited per account (60 requests per minute), everyone else per IP (20 per minute). The signed-in user is looked up before the limiter runs because the limiter key needs the user id. File validation still runs before any quota is touched.
+- **Error body.** `upgradeTo` is inside the `error` object: `{ "error": { "code": "quota_exceeded", "message": "...", "upgradeTo": "account" } }`.
+- **Two extra error codes:** `invalid_request` (400, body failed zod validation) and `server_error` (500, a database call failed).
+- **`quota` in the analyze response** is read from the database after the scan, because the quota functions return only a boolean. If that read fails after a successful scan, the verdict is still returned with `quota: null` and the client refreshes from `/api/me`.
+- **Refund** never throws. A failed refund is logged and the user still gets the analysis error.
+- **Upgrade success state** links to Analyze only. The History and Batch links arrive with Specs 03 and 04, because those pages do not exist yet. The pricing page carries a note that these features are being rolled out. The upgrade prompt text is the one specified, even though it mentions history and batch upload.
+- **Idempotent upgrade** keeps the original `pro_since` and refreshes the company and billing email. The demo downgrade only sets the plan to free and keeps `scans_used`.
+- **Forms:** passwords need at least 8 characters on sign-up. A failed login always shows the same message, so it does not reveal which emails exist. If email confirmation is turned on in Supabase, sign-up shows "Check your email" instead of signing in.
+- **Extra files:** `components/quota-provider.tsx` (plan and quota shared with the top bar), `components/top-bar.tsx`, `components/quota-dialog.tsx`, `components/auth-form.tsx`, `components/upgrade-form.tsx`, `components/account-actions.tsx`, `lib/api-response.ts`, `lib/billing.ts`, `lib/quota.ts`, `lib/auth/visitor.ts`, `app/error.tsx` and `app/account/loading.tsx`.
+- **Dependency:** `@supabase/ssr` (pre-approved). shadcn `input`, `label`, `dialog` and `table` were added.
+
+**Not verified yet**
+
+- The migration has not been applied from this environment, and no real Supabase project was used. Everything is covered by unit tests with mocked Supabase clients.
+- None of the acceptance criteria is ticked. The security checks (the plan cannot be updated by a signed-in user, `consume_user_scan` fails with the publishable key) must be run manually after the migration is applied.
+
