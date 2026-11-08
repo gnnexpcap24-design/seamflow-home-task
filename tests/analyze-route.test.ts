@@ -105,6 +105,7 @@ describe("POST /api/analyze", () => {
         returningVisitor,
         expect.objectContaining({ fileName: "a.jpg", mimeType: "image/jpeg" }),
         verdict,
+        undefined,
       );
     });
 
@@ -112,6 +113,59 @@ describe("POST /api/analyze", () => {
       classifyImage.mockRejectedValue(new AnalyzeError("model_error"));
       await post(jpeg());
       expect(saveScanIfEligible).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("batch uploads", () => {
+    const BATCH_ID = "11111111-2222-4333-8444-555555555555";
+    const proUser = { kind: "user", plan: "pro", userId: "u-pro", email: null };
+
+    function postBatch(batchId: string, file = jpeg()) {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("batchId", batchId);
+      const request = new Request("http://localhost/api/analyze", {
+        method: "POST",
+        body: form,
+        headers: { "x-forwarded-for": `10.9.0.${++ipCounter}` },
+      });
+      return POST(request);
+    }
+
+    it("403 pro_required for a free account sending a batchId, before any quota is used", async () => {
+      getAuthUser.mockResolvedValue({ id: "u-free", email: null });
+      resolveIdentity.mockResolvedValue(freeUser);
+      await expectError(await postBatch(BATCH_ID), 403, "pro_required");
+      expect(consumeScan).not.toHaveBeenCalled();
+      expect(classifyImage).not.toHaveBeenCalled();
+    });
+
+    it("401 for a visitor sending a batchId", async () => {
+      await expectError(await postBatch(BATCH_ID), 401, "unauthorized");
+      expect(consumeScan).not.toHaveBeenCalled();
+    });
+
+    it("saves the scan with the batch id for a Pro user", async () => {
+      getAuthUser.mockResolvedValue({ id: "u-pro", email: null });
+      resolveIdentity.mockResolvedValue(proUser);
+      saveScanIfEligible.mockResolvedValue({ saved: true, scanId: "scan-9" });
+      const response = await postBatch(BATCH_ID);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ saved: true, scanId: "scan-9" });
+      expect(saveScanIfEligible).toHaveBeenCalledWith(proUser, expect.anything(), verdict, BATCH_ID);
+    });
+
+    it("400 invalid_request when the batchId is not a uuid", async () => {
+      getAuthUser.mockResolvedValue({ id: "u-pro", email: null });
+      resolveIdentity.mockResolvedValue(proUser);
+      await expectError(await postBatch("not-a-uuid"), 400, "invalid_request");
+      expect(consumeScan).not.toHaveBeenCalled();
+    });
+
+    it("still allows a normal scan without a batchId for free accounts", async () => {
+      getAuthUser.mockResolvedValue({ id: "u-free", email: null });
+      resolveIdentity.mockResolvedValue(freeUser);
+      expect((await post(jpeg())).status).toBe(200);
     });
   });
 

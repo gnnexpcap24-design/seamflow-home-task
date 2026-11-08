@@ -103,7 +103,7 @@ All routes call `requirePlan("pro")` and use the signed-in user's id from `getUs
   - Never rely on color alone: the legend labels both series, and the tooltip shows text labels.
   - Show a skeleton while loading, an inline error alert with retry on failure, and the empty state when there are no scans.
 
-**Top bar nav:** add History and Insights links (Batch comes in Spec 04). Update the footer note to: "Images are processed in memory. Pro accounts keep a private history that only you can see."
+**Top bar nav:** add History and Insights links. Update the footer note to: "Images are processed in memory. Pro accounts keep a private history that only you can see."
 
 **Analyze page:** for Pro, show a small "Saved to history" indicator when `saved` is true, and a quiet "Could not save to history" note when false (the verdict still shows).
 

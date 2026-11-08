@@ -14,10 +14,11 @@ import { buildStats, type RawStats } from "@/lib/scans/stats";
 const BUCKET = "scans";
 
 const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-const LIST_COLUMNS = "id, file_name, image_path, verdict, confidence, reason, flagged, created_at";
+const LIST_COLUMNS = "id, batch_id, file_name, image_path, verdict, confidence, reason, flagged, created_at";
 
 type ScanRow = {
   id: string;
+  batch_id: string | null;
   file_name: string;
   image_path: string;
   verdict: ScanItem["verdict"];
@@ -34,6 +35,7 @@ export type NewScan = {
   buffer: Buffer;
   mimeType: string;
   analysis: Analysis;
+  batchId?: string;
 };
 
 // Uploads the image, then inserts the row. If the insert fails the uploaded file is removed again.
@@ -46,6 +48,7 @@ export async function saveScan(scan: NewScan): Promise<void> {
   const { error } = await admin.from("scans").insert({
     id: scan.scanId,
     user_id: scan.userId,
+    batch_id: scan.batchId ?? null,
     file_name: scan.fileName,
     image_path: path,
     verdict: scan.analysis.verdict,
@@ -76,6 +79,7 @@ async function signUrls(paths: string[]): Promise<Map<string, string | null>> {
 function toItem(row: ScanRow, urls: Map<string, string | null>): ScanItem {
   return {
     id: row.id,
+    batchId: row.batch_id ?? null,
     fileName: row.file_name,
     verdict: row.verdict,
     confidence: Number(row.confidence),

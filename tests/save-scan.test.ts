@@ -25,6 +25,11 @@ describe("saveScanIfEligible", () => {
     expect(saveScan).toHaveBeenCalledWith(expect.objectContaining({ userId: "u-pro", fileName: "..lunch.jpg", scanId: result.scanId }));
   });
 
+  it("passes the batch id through to storage", async () => {
+    await saveScanIfEligible(pro, file, analysis, "11111111-2222-4333-8444-555555555555");
+    expect(saveScan).toHaveBeenCalledWith(expect.objectContaining({ batchId: "11111111-2222-4333-8444-555555555555" }));
+  });
+
   it.each([
     ["a free account", free],
     ["a visitor", visitor],

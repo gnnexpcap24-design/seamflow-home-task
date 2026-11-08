@@ -66,3 +66,47 @@ Pro scan history is currently kept until the user deletes a scan. Add an automat
   - [ ] A scan older than 30 days is removed from the history and its file is gone from storage.
   - [ ] A recent scan is untouched.
   - [ ] A request without the secret is rejected.
+
+## 7. Server-side batch processing (background job queue)
+
+Spec 04 runs the batch queue in the browser: the tab must stay open, and closing it loses the files that were not sent yet. A background job queue removes that limit and makes large batches reliable.
+
+**Recommended tool:** a durable job platform such as Inngest (or Trigger.dev). Each image becomes its own job, with retries, backoff and a concurrency limit built in, and it integrates with Next.js on Vercel. A lighter alternative is Upstash QStash, an HTTP queue that calls a route of ours and retries on failure, with less workflow tooling. Check the current free-tier run and concurrency limits on the vendor's pricing page before choosing, because third-party comparisons disagree.
+
+**Flow**
+
+1. **Direct upload.** The browser asks `POST /api/batches` for one signed upload URL per image and uploads the files straight to a private Supabase Storage path (`{user_id}/{batch_id}/{item_id}`). Large files never pass through a Vercel function, so the 4.5 MB request limit no longer applies. The browser still compresses first to save upload time and model cost.
+2. **Batch record.** The same request creates a `batches` row and one `batch_items` row per image (`queued`), then sends one job per item to the queue.
+3. **Worker job (one per image).** It loads the image from storage, consumes quota, classifies the image, saves the scan to history and marks the item `done` or `failed` with an error code.
+   - Retries with backoff on rate limits, server errors and malformed output, using the same rules as `classifyImage`. No retry for refusals or bad images.
+   - Quota is consumed when the job starts and refunded if it ends in failure. Each item has an idempotency key, so a retried or duplicated job never charges twice.
+   - A global concurrency limit protects the OpenAI rate limit, and a per-user limit (for example 3) stops one large batch from starving other users.
+4. **Progress.** The page follows a batch with Supabase Realtime, or by polling `GET /api/batches/:id`. Progress survives closing the tab, and finished batches appear in History when the user comes back.
+5. **Controls.** Retry failed items, cancel the remaining items, and delete a batch together with its files.
+
+**Data model (new migration)**
+
+- `batches`: `id`, `user_id`, `status`, `total`, `created_at`.
+- `batch_items`: `id`, `batch_id`, `scan_id`, `file_name`, `status`, `error_code`, `attempts`.
+- Row Level Security on both tables with a read-own-rows policy only. All writes go through the server.
+
+**Security and limits**
+
+- A signed upload URL only allows one specific path, and the bucket enforces the file size and allowed image types.
+- Pro is checked in `POST /api/batches` and again inside each job. Never trust the user id in a job payload without checking that it owns the batch.
+- Cap the number of files per batch, as Spec 04 does.
+- Failed or abandoned uploads (files with no matching item) need a cleanup, which fits with the retention cleanup in item 6.
+
+**Tests**
+
+- The job marks an item done, failed after exhausted retries, or skipped when canceled.
+- A retried job does not consume quota twice.
+- A user cannot read, cancel or retry another user's batch.
+- The progress endpoint returns correct counts for mixed states.
+
+**Acceptance**
+
+- [ ] Starting a batch of 25 images and closing the tab still finishes the batch, and the results are in History.
+- [ ] One failing image does not stop the others, and retrying it processes only that image.
+- [ ] No more than the configured number of images are analysed at the same time.
+- [ ] A free account cannot create a batch, and cannot upload to a Pro path.

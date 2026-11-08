@@ -12,6 +12,7 @@ export async function saveScanIfEligible(
   identity: Identity,
   file: SaveInput,
   analysis: Analysis,
+  batchId?: string,
 ): Promise<SaveResult> {
   if (identity.kind !== "user" || !PLANS[identity.plan].history) return { saved: false };
   const scanId = crypto.randomUUID();
@@ -23,6 +24,7 @@ export async function saveScanIfEligible(
       buffer: file.buffer,
       mimeType: file.mimeType,
       analysis,
+      batchId,
     });
     return { saved: true, scanId };
   } catch (error) {

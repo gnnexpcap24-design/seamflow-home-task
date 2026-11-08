@@ -149,7 +149,7 @@ Set these as shadcn CSS variables in `app/globals.css` (convert hex to the forma
 
 ### Layout
 
-- Top bar: product name "Hot Dog or Not" with an "Enterprise Edition" badge. Nav only for features that exist (Analyze, Batch, History, Insights).
+- Top bar: product name "Hot Dog or Not" with an "Enterprise Edition" badge. Nav only for features that exist (History, Insights, Pricing, and account links). Batch is not a nav item: the main page has a "Single image / Batch" switch, and Batch is disabled with a visible Pro note for users without access.
 - Analyze page: upload zone on top, result card directly below. No sidebars.
 - Footer: privacy note (images processed in memory, history stored privately).
 

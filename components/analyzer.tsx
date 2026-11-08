@@ -10,49 +10,21 @@ import { VerdictCard } from "@/components/verdict-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ApiRequestError, requestAnalysis } from "@/lib/analyze/client";
 import { API_ERRORS } from "@/lib/analyze/errors";
 import type { AnalyzeResponse } from "@/lib/analyze/schema";
-import type { PlanName, Quota, UpgradeTarget } from "@/lib/plans";
+import type { PlanName, UpgradeTarget } from "@/lib/plans";
 import { CompressionError, compressImage } from "@/lib/image/compress";
 import { MAX_PICK_BYTES, validateFileMeta } from "@/lib/validation/file";
 
 type Prepared = { file: File; originalName: string; preview: Preview };
 type Phase = "idle" | "preparing" | "ready" | "analyzing" | "done" | "error";
 
-const REQUEST_TIMEOUT_MS = 35_000;
 const NETWORK_MESSAGE = "We couldn't reach the server. Check your connection and try again.";
 const TOO_BIG_MESSAGE = "This image is larger than 10 MB. Choose a smaller image.";
 
 function formatSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-class ApiRequestError extends Error {
-  constructor(
-    message: string,
-    readonly code?: string,
-    readonly upgradeTo?: UpgradeTarget | null,
-  ) {
-    super(message);
-  }
-}
-
-type AnalyzeResult = AnalyzeResponse & { quota: Quota | null };
-
-async function requestAnalysis(file: File): Promise<AnalyzeResult> {
-  const body = new FormData();
-  body.append("file", file);
-  const response = await fetch("/api/analyze", {
-    method: "POST",
-    body,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    const apiError = data?.error;
-    throw new ApiRequestError(apiError?.message ?? API_ERRORS.model_error.message, apiError?.code, apiError?.upgradeTo);
-  }
-  return data as AnalyzeResult;
 }
 
 export function Analyzer() {
@@ -130,7 +102,6 @@ export function Analyzer() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Analyze an image</h1>
       <UploadZone preview={prepared?.preview ?? null} disabled={busy} onSelect={handleSelect} />
 
       {canAnalyze && (

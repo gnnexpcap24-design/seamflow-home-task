@@ -7,6 +7,7 @@ export const SIGNED_URL_TTL_SECONDS = 3600;
 
 export type ScanItem = {
   id: string;
+  batchId: string | null;
   fileName: string;
   verdict: Verdict;
   confidence: number;

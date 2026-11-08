@@ -1,5 +1,6 @@
 import { FlagIcon, ImageOffIcon, Trash2Icon } from "lucide-react";
 import { VerdictBadge } from "@/components/verdict-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatPercent, formatRelativeTime } from "@/lib/format";
@@ -34,7 +35,10 @@ export function ScanCard({ scan, onImageError, onDelete, onToggleFlag }: Props) 
           <VerdictBadge verdict={scan.verdict} />
           <span className="text-sm tabular-nums">{formatPercent(scan.confidence)}</span>
         </div>
-        <p className="truncate text-sm font-medium" title={scan.fileName}>{scan.fileName}</p>
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-sm font-medium" title={scan.fileName}>{scan.fileName}</p>
+          {scan.batchId && <Badge variant="outline">Batch</Badge>}
+        </div>
         {scan.reason && <p className="text-sm text-muted-foreground">{scan.reason}</p>}
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">

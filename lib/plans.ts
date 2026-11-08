@@ -4,6 +4,9 @@ export const PLANS = {
   pro: { scanLimit: null, history: true, batch: true, insights: true },
 } as const;
 
+export const BATCH_MAX_FILES = 25;
+export const BATCH_CONCURRENCY = 3;
+
 export type PlanName = keyof typeof PLANS;
 export type UserPlan = Exclude<PlanName, "visitor">;
 export type UpgradeTarget = "account" | "pro";

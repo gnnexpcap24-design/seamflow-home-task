@@ -127,7 +127,7 @@ Keep the SQL in the repo as a migration and apply it with the Supabase CLI (see 
 - `POST /api/billing/downgrade`: demo only, sets the plan back to `free`, so testers can retry the flow. Label it clearly as a demo action.
 - `lib/auth/require-plan.ts`: `requirePlan("pro")` helper that returns 401 or 403 `pro_required`. Used by Specs 03 and 04.
 
-**Middleware**: refresh the Supabase session on each request (`@supabase/ssr` pattern). Redirect rules: `/account` and `/upgrade` need a session; `/history`, `/insights`, `/batch` are pages that exist for everyone but show an upsell when the user is not Pro (they are built in Specs 03 and 04).
+**Middleware**: refresh the Supabase session on each request (`@supabase/ssr` pattern). Redirect rules: `/account` and `/upgrade` need a session; `/history` and `/insights` are pages that exist for everyone but show an upsell when the user is not Pro (they are built in Spec 03). Batch upload is a mode of the main page, not a page (Spec 04).
 
 ## UI
 

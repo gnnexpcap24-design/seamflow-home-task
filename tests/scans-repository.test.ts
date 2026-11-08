@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Result = { data?: unknown; error?: { message: string } | null };
 
 const state = vi.hoisted(() => ({ queue: [] as Result[], maybeSingle: { data: null } as Result }));
-const calls = vi.hoisted(() => ({ order: [] as string[] }));
+const calls = vi.hoisted(() => ({ order: [] as string[], inserted: [] as unknown[] }));
 const chain = vi.hoisted(() => ({} as Record<string, unknown>));
 const upload = vi.hoisted(() => vi.fn());
 const remove = vi.hoisted(() => vi.fn());
@@ -13,6 +13,7 @@ const rpc = vi.hoisted(() => vi.fn());
 for (const method of ["select", "eq", "order", "limit", "or", "insert", "update", "delete", "lt", "in"]) {
   chain[method] = vi.fn((...args: unknown[]) => {
     calls.order.push(`${method}:${args.map(String).join(",")}`);
+    if (method === "insert") calls.inserted.push(args[0]);
     return chain;
   });
 }
@@ -31,6 +32,7 @@ const ID = "5d1f6c1e-5c0a-4a52-9d58-3c5d2f8e7a10";
 function row(index: number) {
   return {
     id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    batch_id: index === 1 ? "11111111-2222-4333-8444-555555555555" : null,
     file_name: `photo-${index}.jpg`,
     image_path: `${USER}/${index}.jpg`,
     verdict: "hot_dog",
@@ -45,6 +47,7 @@ beforeEach(() => {
   state.queue = [];
   state.maybeSingle = { data: null };
   calls.order = [];
+  calls.inserted = [];
   upload.mockReset().mockResolvedValue({ error: null });
   remove.mockReset().mockResolvedValue({ error: null });
   createSignedUrls.mockReset();
@@ -65,7 +68,8 @@ describe("listScans", () => {
     const page = await listScans(USER, { limit: 20 });
     expect(calls.order).toContain(`eq:user_id,${USER}`);
     expect(page.items.map((item) => item.thumbUrl)).toEqual(["https://signed/0", "https://signed/1"]);
-    expect(page.items[0]).toMatchObject({ fileName: "photo-0.jpg", confidence: 0.91 });
+    expect(page.items[0]).toMatchObject({ fileName: "photo-0.jpg", confidence: 0.91, batchId: null });
+    expect(page.items[1].batchId).toBe("11111111-2222-4333-8444-555555555555");
     expect(page.nextCursor).toBeNull();
     expect(createSignedUrls).toHaveBeenCalledTimes(1);
     expect(createSignedUrls).toHaveBeenCalledWith([`${USER}/0.jpg`, `${USER}/1.jpg`], 3600);
@@ -128,6 +132,16 @@ describe("saveScan", () => {
     await saveScan(scan);
     expect(upload).toHaveBeenCalledWith(`${USER}/${ID}.jpg`, scan.buffer, { contentType: "image/jpeg" });
     expect(calls.order.some((call) => call.startsWith("insert:"))).toBe(true);
+  });
+
+  it("stores the batch id on the row when there is one", async () => {
+    await saveScan({ ...scan, batchId: "11111111-2222-4333-8444-555555555555" });
+    expect(calls.inserted).toContainEqual(expect.objectContaining({ batch_id: "11111111-2222-4333-8444-555555555555" }));
+  });
+
+  it("stores no batch id for a single scan", async () => {
+    await saveScan(scan);
+    expect(calls.inserted).toContainEqual(expect.objectContaining({ batch_id: null }));
   });
 
   it("does not insert when the upload fails", async () => {
