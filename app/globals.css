@@ -1,26 +1,87 @@
 @import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-inter);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-hotdog: var(--hotdog);
+  --color-hotdog-foreground: var(--hotdog-foreground);
+  --color-nothotdog: var(--nothotdog);
+  --color-nothotdog-foreground: var(--nothotdog-foreground);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Light theme only. Palette is defined in AGENTS.md (Design > Theme). */
+:root {
+  --background: oklch(0.985 0.001 0);
+  --foreground: oklch(0.216 0.006 56);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.216 0.006 56);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.216 0.006 56);
+  --primary: oklch(0.473 0.125 46.2);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.97 0.001 0);
+  --secondary-foreground: oklch(0.216 0.006 56);
+  --muted: oklch(0.97 0.001 0);
+  --muted-foreground: oklch(0.444 0.01 73.6);
+  --accent: oklch(0.97 0.001 0);
+  --accent-foreground: oklch(0.216 0.006 56);
+  --destructive: oklch(0.505 0.19 27.5);
+  --border: oklch(0.923 0.003 0);
+  --input: oklch(0.923 0.003 0);
+  --ring: oklch(0.473 0.125 46.2);
+  --radius: 0.5rem;
+  --hotdog: oklch(0.979 0.021 166.1);
+  --hotdog-foreground: oklch(0.508 0.105 165.6);
+  --nothotdog: oklch(0.97 0.001 0);
+  --nothotdog-foreground: oklch(0.374 0.009 67.6);
+  --error: oklch(0.971 0.013 17.4);
+  --error-foreground: oklch(0.505 0.19 27.5);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
